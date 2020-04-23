@@ -7,8 +7,10 @@ from setuptools import (
 
 extras_require = {
     'test': [
+        "factory-boy==2.12.0",
         "pytest==3.3.2",
         "pytest-xdist",
+        "pytest-trio==0.5.2",
         "tox>=2.9.1,<3",
     ],
     'lint': [
@@ -44,22 +46,27 @@ with open('./README.md') as readme:
 
 
 setup(
-    name='<PYPI_NAME>',
+    name='cthaeh',
     # *IMPORTANT*: Don't manually change the version here. Use `make bump`, as described in readme
     version='0.1.0-alpha.0',
-    description="""<PYPI_NAME>: <SHORT_DESCRIPTION>""",
+    description="""Stand alone application for serving the Ethereum JSON-RPC logging APIs""",
     long_description=long_description,
     long_description_content_type='text/markdown',
     author='The Ethereum Foundation',
     author_email='snakecharmers@ethereum.org',
-    url='https://github.com/ethereum/<REPO_NAME>',
+    url='https://github.com/ethereum/cthaeh',
     include_package_data=True,
     install_requires=[
+        "async-service==0.1.0a7",
+        "eth-typing==2.2.1",
         "eth-utils>=1,<2",
+        "SQLAlchemy==1.3.16",
+        "trio==0.13.0",
+        "trio-typing==0.3.0",
     ],
     python_requires='>=3.6, <4',
     extras_require=extras_require,
-    py_modules=['<MODULE_NAME>'],
+    py_modules=['cthaeh'],
     license="MIT",
     zip_safe=False,
     keywords='ethereum',
@@ -74,4 +81,9 @@ setup(
         'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: Implementation :: PyPy',
     ],
+    entry_points={
+        'console_scripts': [
+            'cthaeh=cthaeh._boot:_boot',
+        ],
+    },
 )

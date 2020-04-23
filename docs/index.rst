@@ -1,7 +1,7 @@
-<PROJECT_NAME>
+cthaeh
 ==============================
 
-<SHORT_DESCRIPTION>
+Stand alone application for serving the Ethereum JSON-RPC logging APIs
 
 Contents
 --------
@@ -9,7 +9,7 @@ Contents
 .. toctree::
     :maxdepth: 3
 
-    <MODULE_NAME>
+    cthaeh
     release_notes
 
 
