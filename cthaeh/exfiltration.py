@@ -6,6 +6,7 @@ from async_service import Service
 from eth_typing import BlockNumber, Hash32
 from eth_utils import (
     big_endian_to_int,
+    to_bytes,
     to_canonical_address,
     to_tuple,
 )
@@ -105,42 +106,87 @@ def extract_block(block_data: BlockData,
 
 
 def extract_uncle(uncle_data: Uncle) -> Header:
+    receipt_root: Hash32
+
+    if 'receiptsRoot' in uncle_data:
+        receipt_root = Hash32(bytes(uncle_data['receiptsRoot']))
+    elif 'receiptRoot' in uncle_data:
+        receipt_root = Hash32(bytes(uncle_data['receiptRoot']))
+    elif 'receipts_root' in uncle_data:
+        receipt_root = Hash32(bytes(uncle_data['receipts_root']))
+    else:
+        raise Exception(f"Cannot find receipts_root key: {uncle_data!r}")
+
+    logs_bloom: int
+
+    if 'logsBloom' in uncle_data:
+        logs_bloom = big_endian_to_int(bytes(uncle_data['logsBloom']))
+    elif 'logs_bloom' in uncle_data:
+        logs_bloom = big_endian_to_int(bytes(uncle_data['logs_bloom']))
+    else:
+        raise Exception(f"Cannot find logs_bloom key: {uncle_data!r}")
+
     return Header(
+        hash=Hash32(bytes(uncle_data['hash'])),
         difficulty=uncle_data['difficulty'],
         block_number=uncle_data['number'],
         gas_limit=uncle_data['gasLimit'],
         timestamp=uncle_data['timestamp'],
         coinbase=to_canonical_address(uncle_data['author']),
-        parent_hash=Hash32(uncle_data['parentHash']),
-        uncles_hash=Hash32(uncle_data['sha3Uncles']),
-        state_root=Hash32(uncle_data['stateRoot']),
-        transaction_root=Hash32(uncle_data['transactionsRoot']),
-        receipt_root=Hash32(uncle_data['receiptsRoot']),  # type: ignore
-        bloom=big_endian_to_int(bytes(uncle_data['logsBloom'])),
+        parent_hash=Hash32(bytes(uncle_data['parentHash'])),
+        uncles_hash=Hash32(bytes(uncle_data['sha3Uncles'])),
+        state_root=Hash32(bytes(uncle_data['stateRoot'])),
+        transaction_root=Hash32(bytes(uncle_data['transactionsRoot'])),
+        receipt_root=receipt_root,
+        bloom=logs_bloom,
         gas_used=uncle_data['gasUsed'],
         extra_data=bytes(uncle_data['extraData']),
-        mix_hash=Hash32(uncle_data['mixHash']),
+        # mix_hash=Hash32(uncle_data['mixHash']),
         nonce=bytes(uncle_data['nonce']),
+        is_canonical=False,
     )
 
 
 def extract_header(block_data: BlockData) -> Header:
+    receipt_root: Hash32
+
+    if 'receiptsRoot' in block_data:
+        receipt_root = Hash32(bytes(block_data['receiptsRoot']))
+    elif 'receiptRoot' in block_data:
+        receipt_root = Hash32(bytes(block_data['receiptRoot']))
+    elif 'receipts_root' in block_data:
+        receipt_root = Hash32(to_bytes(hexstr=block_data['receipts_root']))
+    else:
+        raise Exception(f"Cannot find receipts_root key: {block_data!r}")
+
+    logs_bloom: int
+
+    if 'logsBloom' in block_data:
+        logs_bloom = big_endian_to_int(bytes(block_data['logsBloom']))
+    elif 'logs_bloom' in block_data:
+        logs_bloom = big_endian_to_int(bytes(block_data['logs_bloom']))
+    else:
+        raise Exception(f"Cannot find logs_bloom key: {block_data!r}")
+
     return Header(
+        hash=Hash32(bytes(block_data['hash'])),
         difficulty=block_data['difficulty'],
         block_number=block_data['number'],
         gas_limit=block_data['gasLimit'],
         timestamp=block_data['timestamp'],
         coinbase=to_canonical_address(block_data['miner']),
-        parent_hash=Hash32(block_data['parentHash']),
-        uncles_hash=Hash32(block_data['sha3Uncles']),
-        state_root=Hash32(block_data['stateRoot']),
-        transaction_root=Hash32(block_data['transactionsRoot']),
-        receipt_root=Hash32(block_data['receiptsRoot']),  # type: ignore
-        bloom=big_endian_to_int(bytes(block_data['logsBloom'])),
+        parent_hash=Hash32(bytes(block_data['parentHash'])),
+        uncles_hash=Hash32(bytes(block_data['sha3Uncles'])),
+        state_root=Hash32(bytes(block_data['stateRoot'])),
+        transaction_root=Hash32(bytes(block_data['transactionsRoot'])),
+        receipt_root=receipt_root,
+        bloom=logs_bloom,
         gas_used=block_data['gasUsed'],
         extra_data=bytes(block_data['extraData']),
-        mix_hash=Hash32(block_data['mixHash']),
+        # TODO: mix-hash isn't part of the block data?
+        # mix_hash=Hash32(block_data['mixHash']),
         nonce=bytes(block_data['nonce']),
+        is_canonical=True,
     )
 
 
@@ -161,7 +207,7 @@ def extract_transaction(transaction_data: TxData) -> Transaction:
 
 def extract_receipt(receipt_data: TxReceipt) -> Receipt:
     return Receipt(
-        state_root=Hash32(receipt_data['stateRoot']),
+        state_root=Hash32(bytes(receipt_data['stateRoot'])),
         gas_used=receipt_data['gasUsed'],
         bloom=big_endian_to_int(receipt_data['logsBloom']),
         logs=extract_logs(receipt_data['logs']),

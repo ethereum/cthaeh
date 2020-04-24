@@ -8,6 +8,7 @@ class Header(NamedTuple):
 
     hash: Hash32
     parent_hash: Hash32
+    uncles_hash: Hash32
     coinbase: Address
     state_root: Hash32
     transaction_root: Hash32
@@ -19,7 +20,7 @@ class Header(NamedTuple):
     gas_used: int
     timestamp: int
     extra_data: bytes
-    mix_hash: Hash32
+    # mix_hash: Hash32
     nonce: bytes
 
 
@@ -35,12 +36,6 @@ class Transaction(NamedTuple):
     s: int
 
 
-class Block(NamedTuple):
-    header: Header
-    transactions: Tuple[Transaction, ...]
-    uncles: Tuple[Header, ...]
-
-
 class Log(NamedTuple):
     address: Address
     topics: Tuple[Hash32, ...]
@@ -52,3 +47,10 @@ class Receipt(NamedTuple):
     gas_used: int
     bloom: int
     logs: Tuple[Log, ...]
+
+
+class Block(NamedTuple):
+    header: Header
+    transactions: Tuple[Transaction, ...]
+    uncles: Tuple[Header, ...]
+    receipts: Tuple[Receipt, ...]

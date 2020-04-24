@@ -8,10 +8,11 @@ from setuptools import (
 extras_require = {
     'test': [
         "factory-boy==2.12.0",
-        "pytest==3.3.2",
-        "pytest-xdist",
+        "pytest==5.4.1",
+        "pytest-xdist==1.32.0",
         "pytest-trio==0.5.2",
-        "tox>=2.9.1,<3",
+        "tox==3.14.6",
+        "web3[tester]",
     ],
     'lint': [
         "flake8==3.4.1",
