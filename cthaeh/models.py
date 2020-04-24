@@ -142,6 +142,8 @@ class Transaction(Base):
     r = Column(LargeBinary(32))
     s = Column(LargeBinary(32))
 
+    sender = Column(LargeBinary(20))
+
 
 class Receipt(Base):
     __tablename__ = 'receipt'

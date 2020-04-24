@@ -1,3 +1,4 @@
+from cthaeh.constants import GENESIS_PARENT_HASH
 from cthaeh.models import Block, Header, Topic, Log, Receipt, Transaction
 from cthaeh.tools.factories import (
     BlockFactory,
@@ -258,3 +259,17 @@ def test_orm_simple_header(session):
     ).one()
 
     assert header_from_db.hash == header.hash
+
+
+def test_orm_genesis_header(session):
+    header = HeaderFactory(_parent_hash=None)
+
+    session.add(header)
+    session.commit()
+
+    header_from_db = session.query(Header).filter(
+        Header.hash == header.hash
+    ).one()
+
+    assert header_from_db.hash == header.hash
+    assert header_from_db.parent_hash == GENESIS_PARENT_HASH

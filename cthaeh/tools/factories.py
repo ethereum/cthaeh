@@ -91,6 +91,8 @@ class TransactionFactory(factory.alchemy.SQLAlchemyModelFactory):
     r = b'\x00' * 32
     s = b'\x00' * 32
 
+    sender = factory.LazyFunction(lambda: secrets.token_bytes(20))
+
 
 class BlockTransactionFactory(factory.alchemy.SQLAlchemyModelFactory):
     class Meta:
