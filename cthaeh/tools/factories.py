@@ -11,6 +11,8 @@ except ImportError as err:
 from cthaeh.constants import GENESIS_PARENT_HASH
 from cthaeh.models import (
     Block,
+    BlockTransaction,
+    BlockUncle,
     Header,
     Transaction,
     Receipt,
@@ -60,6 +62,15 @@ class BlockFactory(factory.alchemy.SQLAlchemyModelFactory):
     header = factory.SubFactory(HeaderFactory)
 
 
+class BlockUncleFactory(factory.alchemy.SQLAlchemyModelFactory):
+    class Meta:
+        model = BlockUncle
+        sqlalchemy_session = Session
+
+    block = factory.SubFactory(BlockFactory)
+    uncle = factory.SubFactory(HeaderFactory)
+
+
 class TransactionFactory(factory.alchemy.SQLAlchemyModelFactory):
     class Meta:
         model = Transaction
@@ -81,6 +92,15 @@ class TransactionFactory(factory.alchemy.SQLAlchemyModelFactory):
     s = b'\x00' * 32
 
 
+class BlockTransactionFactory(factory.alchemy.SQLAlchemyModelFactory):
+    class Meta:
+        model = BlockTransaction
+        sqlalchemy_session = Session
+
+    block = factory.SubFactory(BlockFactory)
+    transaction = factory.SubFactory(TransactionFactory)
+
+
 class ReceiptFactory(factory.alchemy.SQLAlchemyModelFactory):
     class Meta:
         model = Receipt
@@ -98,6 +118,7 @@ class LogFactory(factory.alchemy.SQLAlchemyModelFactory):
         model = Log
         sqlalchemy_session = Session
 
+    idx = 0
     receipt = factory.SubFactory(ReceiptFactory)
 
     address = factory.LazyFunction(lambda: secrets.token_bytes(20))
