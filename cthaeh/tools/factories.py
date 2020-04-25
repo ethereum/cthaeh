@@ -21,7 +21,7 @@ from cthaeh.models import (
     Topic,
 )
 
-from .session import Session
+from cthaeh.session import Session
 
 
 class HeaderFactory(factory.alchemy.SQLAlchemyModelFactory):
@@ -44,13 +44,13 @@ class HeaderFactory(factory.alchemy.SQLAlchemyModelFactory):
 
     _bloom = b''
 
-    difficulty = 1
+    difficulty = b'\x01'
     block_number = 0
     gas_limit = 3141592
     gas_used = 3141592
     timestamp = 0
     extra_data = b''
-    mix_hash = factory.LazyFunction(lambda: secrets.token_bytes(32))
+    # mix_hash = factory.LazyFunction(lambda: secrets.token_bytes(32))
     nonce = factory.LazyFunction(lambda: secrets.token_bytes(8))
 
 
@@ -85,7 +85,7 @@ class TransactionFactory(factory.alchemy.SQLAlchemyModelFactory):
     gas_price = 1
     gas = 21000
     to = factory.LazyFunction(lambda: secrets.token_bytes(20))
-    value = 0
+    value = b'\x00'
     data = b''
     v = b'\x00' * 32
     r = b'\x00' * 32

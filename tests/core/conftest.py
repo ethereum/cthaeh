@@ -3,7 +3,7 @@ import pytest
 from sqlalchemy import create_engine
 
 from cthaeh.models import Base
-from cthaeh.tools.session import Session
+from cthaeh.session import Session
 
 
 @pytest.fixture

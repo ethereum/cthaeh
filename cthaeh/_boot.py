@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 
 async def _main():
     from cthaeh.main import main
-    await main
+    await main()
 
 
 class BootService(Service):

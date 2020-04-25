@@ -1,5 +1,7 @@
+from typing import Optional
+
 from eth_typing import Hash32
-from eth_utils import big_endian_to_int, int_to_big_endian
+from eth_utils import big_endian_to_int, int_to_big_endian, humanize_hash
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy import (
     Column,
@@ -10,9 +12,15 @@ from sqlalchemy import (
     ForeignKey,
     UniqueConstraint,
 )
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, backref
 
 from cthaeh.constants import GENESIS_PARENT_HASH
+from cthaeh.ir import (
+    Header as HeaderIR,
+    Transaction as TransactionIR,
+    Receipt as ReceiptIR,
+    Log as LogIR,
+)
 
 Base = declarative_base()
 
@@ -54,16 +62,16 @@ class Header(Base):
     transaction_root = Column(LargeBinary(32))
     receipt_root = Column(LargeBinary(32))
     _bloom = Column(LargeBinary(1024))
-    difficulty = Column(BigInteger)
+    difficulty = Column(LargeBinary(32))
     block_number = Column(BigInteger)
     gas_limit = Column(BigInteger)
     gas_used = Column(BigInteger)
     timestamp = Column(Integer)
     extra_data = Column(LargeBinary)
-    mix_hash = Column(LargeBinary(32))
+    # mix_hash = Column(LargeBinary(32))
     nonce = Column(LargeBinary(8))
 
-    children = relationship("Header")
+    children = relationship("Header", backref=backref("parent", remote_side=[hash]))
 
     @property
     def parent_hash(self) -> Hash32:
@@ -78,6 +86,28 @@ class Header(Base):
             self._parent_hash = None
         else:
             self._parent_hash = value
+
+    @classmethod
+    def from_ir(cls, header: HeaderIR) -> 'Header':
+        return cls(
+            hash=header.hash,
+            is_canonical=header.is_canonical,
+            _parent_hash=None if header.is_genesis else header.parent_hash,
+            uncles_hash=header.uncles_hash,
+            coinbase=header.coinbase,
+            state_root=header.state_root,
+            transaction_root=header.transaction_root,
+            receipt_root=header.receipt_root,
+            _bloom=header.bloom,
+            difficulty=header.difficulty,
+            block_number=header.block_number,
+            gas_limit=header.gas_limit,
+            gas_used=header.gas_used,
+            timestamp=header.timestamp,
+            extra_data=header.extra_data,
+            # mix_hash=header.mix_hash,
+            nonce=header.nonce,
+        )
 
 
 class BlockTransaction(Base):
@@ -136,13 +166,32 @@ class Transaction(Base):
     gas_price = Column(BigInteger)
     gas = Column(BigInteger)
     to = Column(LargeBinary(20))
-    value = Column(BigInteger)
+    value = Column(LargeBinary(32))
     data = Column(LargeBinary)
     v = Column(LargeBinary(32))
     r = Column(LargeBinary(32))
     s = Column(LargeBinary(32))
 
     sender = Column(LargeBinary(20))
+
+    @classmethod
+    def from_ir(cls,
+                transaction_ir: TransactionIR,
+                block_header_hash: Optional[Hash32]) -> 'Transaction':
+        return cls(
+            hash=transaction_ir.hash,
+            block_header_hash=block_header_hash,
+            nonce=transaction_ir.nonce,
+            gas_price=transaction_ir.gas_price,
+            gas=transaction_ir.gas,
+            to=transaction_ir.to,
+            value=transaction_ir.value,
+            data=transaction_ir.data,
+            v=transaction_ir.v,
+            r=transaction_ir.r,
+            s=transaction_ir.s,
+            sender=transaction_ir.sender,
+        )
 
 
 class Receipt(Base):
@@ -164,12 +213,20 @@ class Receipt(Base):
     def bloom(self, value: int) -> None:
         self._bloom = int_to_big_endian(value)
 
+    @classmethod
+    def from_ir(cls, receipt_ir: ReceiptIR, transaction_hash: Hash32) -> 'Receipt':
+        return cls(
+            transaction_hash=transaction_hash,
+            state_root=receipt_ir.state_root,
+            gas_used=receipt_ir.gas_used,
+            _bloom=receipt_ir.bloom,
+        )
+
 
 class LogTopic(Base):
     __tablename__ = 'logtopic'
     __table_args__ = (
         UniqueConstraint('idx', 'log_id', name='_idx_log_id'),
-        UniqueConstraint('topic_topic', 'log_id', name='_topic_topic_log_id'),
     )
 
     idx = Column(Integer)
@@ -200,6 +257,42 @@ class Log(Base):
         order_by=LogTopic.idx,
     )
     data = Column(LargeBinary)
+
+    def __repr__(self) -> str:
+        return (
+            f"Log("
+            f"idx={self.idx!r}, "
+            f"receipt_hash={self.receipt_hash!r}, "
+            f"address={self.address!r}, "
+            f"data={self.data!r}, "
+            f"topics={self.topics!r}"
+            f")"
+        )
+
+    def __str__(self) -> str:
+        if len(self.data > 4):
+            pretty_data = humanize_hash(self.data)
+        else:
+            pretty_data = self.data.hex()
+
+        if len(self.topics) == 0:
+            pretty_topics = '(anonymous)'
+        else:
+            pretty_topics = '|'.join((
+                humanize_hash(topic.topic)
+                for topic in self.topics
+            ))
+
+        return f"Log[#{self.idx} A={humanize_hash(self.address)} D={pretty_data}/T={pretty_topics}]"
+
+    @classmethod
+    def from_ir(cls, log_ir: LogIR, idx: int, receipt_hash: Hash32) -> 'Log':
+        return cls(
+            idx=idx,
+            receipt_hash=receipt_hash,
+            address=log_ir.address,
+            data=log_ir.data,
+        )
 
 
 class Topic(Base):

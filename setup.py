@@ -9,7 +9,7 @@ extras_require = {
     'test': [
         "factory-boy==2.12.0",
         "pytest==5.4.1",
-        "pytest-xdist==1.32.0",
+        "pytest-xdist==1.31.0",
         "pytest-trio==0.5.2",
         "tox==3.14.6",
         "web3[tester]",
@@ -17,7 +17,7 @@ extras_require = {
     'lint': [
         "flake8==3.4.1",
         "isort>=4.2.15,<5",
-        "mypy==0.701",
+        "mypy==0.770",
         "pydocstyle>=3.0.0,<4",
     ],
     'doc': [
@@ -62,6 +62,7 @@ setup(
         "eth-typing==2.2.1",
         "eth-utils>=1,<2",
         "SQLAlchemy==1.3.16",
+        "sqlalchemy-stubs==0.3",
         "trio==0.13.0",
         "trio-typing==0.3.0",
     ],
