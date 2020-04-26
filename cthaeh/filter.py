@@ -1,9 +1,10 @@
 from typing import NamedTuple, Optional, Tuple, Union
 
 from eth_typing import Address, BlockNumber, Hash32
-from sqlalchemy import orm, or_
+from eth_utils import to_tuple
+from sqlalchemy import orm, or_, Constraint
 
-from cthaeh.models import Log, Receipt
+from cthaeh.models import Block, Header, Log, Receipt, Transaction
 
 
 BlockIdentifier = BlockNumber
@@ -24,19 +25,49 @@ class FilterParams(NamedTuple):
     topics: Tuple[Topic, ...] = ()
 
 
-def filter(session: orm.Session, params: FilterParams) -> Tuple[Log, ...]:
+@to_tuple
+def _construct_filters(params: FilterParams) -> Tuple[Constraint, ...]:
     if isinstance(params.address, tuple):
         # TODO: or
-        address_filter = or_(*tuple(
+        yield or_(*tuple(
             Log.address == address
             for address in params.address
         ))
+    elif isinstance(params.address, bytes):
+        yield (Log.address == params.address)
+    elif params.address is None:
+        pass
     else:
-        address_filter = (Log.address == params.address)
+        raise TypeError(f"Invalid address parameter: {params.address!r}")
+
+    if isinstance(params.from_block, int):
+        yield (Header.block_number >= params.from_block)
+    elif params.from_block is None:
+        pass
+    else:
+        raise TypeError(f"Invalid from_block parameter: {params.from_block!r}")
+
+    if isinstance(params.to_block, int):
+        yield (Header.block_number <= params.to_block)
+    elif params.to_block is None:
+        pass
+    else:
+        raise TypeError(f"Invalid to_block parameter: {params.to_block!r}")
+
+
+def filter(session: orm.Session, params: FilterParams) -> Tuple[Log, ...]:
+    orm_filters = _construct_filters(params)
 
     return session.query(Log).join(
         Receipt,
-        Log.receipt_hash == Receipt.transaction_hash
-    ).filter(
-        address_filter
-    ).all()
+        Log.receipt_hash == Receipt.transaction_hash,
+    ).join(
+        Transaction,
+        Receipt.transaction_hash == Transaction.hash,
+    ).join(
+        Block,
+        Transaction.block_header_hash == Block.header_hash,
+    ).join(
+        Header,
+        Block.header_hash == Header.hash,
+    ).filter(*orm_filters).all()

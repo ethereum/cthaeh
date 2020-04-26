@@ -19,6 +19,11 @@ from .factories import (
 )
 
 
+def check_filter_results(params: FilterParams, logs: Sequence[Log]) -> None:
+    for log in logs:
+        check_log_matches_filter(params, log)
+
+
 def check_log_matches_filter(params: FilterParams, log: Log) -> None:
     # Check that log belongs to a canonical header
     assert log.receipt.transaction.block is not None
@@ -108,5 +113,4 @@ def construct_log(session: Session,
     session.add(log)
     session.add_all(log_topics)
 
-    session.commit()
     return log

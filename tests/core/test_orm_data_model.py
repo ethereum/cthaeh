@@ -17,7 +17,6 @@ def test_orm_single_topic(session):
     topic = TopicFactory()
 
     session.add(topic)
-    session.commit()
 
     topic_from_db = session.query(Topic).filter(
         Topic.topic == topic.topic,
@@ -30,7 +29,6 @@ def test_orm_log_without_topics(session):
     log = LogFactory()
 
     session.add(log)
-    session.commit()
 
     log_from_db = session.query(Log).filter(
         Log.id == log.id,
@@ -45,7 +43,6 @@ def test_orm_log_with_single_topic(session):
     log_topic = LogTopicFactory(log=log, topic=topic, idx=0)
 
     session.add_all((log, topic, log_topic))
-    session.commit()
 
     log_from_db = session.query(Log).filter(
         Log.id == log.id,
@@ -63,7 +60,6 @@ def test_orm_log_with_multiple_topics(session):
     log_topic_2 = LogTopicFactory(topic=topic_c, log=log, idx=2)
 
     session.add_all((log, topic_a, topic_b, topic_c, log_topic_0, log_topic_1, log_topic_2))
-    session.commit()
 
     log_from_db = session.query(Log).filter(
         Log.id == log.id,
@@ -80,7 +76,6 @@ def test_orm_receipt_without_logs(session):
     receipt = ReceiptFactory()
 
     session.add(receipt)
-    session.commit()
 
     receipt_from_db = session.query(Receipt).filter(
         Receipt.transaction_hash == receipt.transaction_hash
@@ -96,7 +91,6 @@ def test_orm_receipt_with_single_log(session):
     log = LogFactory(receipt=receipt, idx=0)
 
     session.add_all((log, receipt))
-    session.commit()
 
     receipt_from_db = session.query(Receipt).filter(
         Receipt.transaction_hash == receipt.transaction_hash
@@ -114,7 +108,6 @@ def test_orm_receipt_with_multiple_logs(session):
     log_c = LogFactory(receipt=receipt, idx=2)
 
     session.add_all((log_b, log_a, log_c, receipt))
-    session.commit()
 
     receipt_from_db = session.query(Receipt).filter(
         Receipt.transaction_hash == receipt.transaction_hash
@@ -131,7 +124,6 @@ def test_orm_simple_transaction(session):
     transaction = TransactionFactory()
 
     session.add(transaction)
-    session.commit()
 
     transaction_from_db = session.query(Transaction).filter(
         Transaction.hash == transaction.hash
@@ -143,7 +135,6 @@ def test_orm_transaction_without_block(session):
     transaction = TransactionFactory(block=None)
 
     session.add(transaction)
-    session.commit()
 
     transaction_from_db = session.query(Transaction).filter(
         Transaction.hash == transaction.hash
@@ -159,7 +150,6 @@ def test_orm_transaction_with_non_canonical_block(session):
     block_transaction = BlockTransactionFactory(block=block, transaction=transaction, idx=0)
 
     session.add_all((block, transaction, block_transaction))
-    session.commit()
 
     transaction_from_db = session.query(Transaction).filter(
         Transaction.hash == transaction.hash
@@ -174,7 +164,6 @@ def test_orm_simple_block(session):
     block = BlockFactory()
 
     session.add(block)
-    session.commit()
 
     block_from_db = session.query(Block).filter(
         Block.header_hash == block.header_hash,
@@ -204,7 +193,6 @@ def test_orm_block_transaction_ordering(session):
         block_transaction_b,
         block_transaction_c,
     ))
-    session.commit()
 
     block_from_db = session.query(Block).filter(
         Block.header_hash == block.header_hash,
@@ -236,7 +224,6 @@ def test_orm_block_with_uncles(session):
         block_uncle_b,
         block_uncle_c,
     ))
-    session.commit()
 
     block_from_db = session.query(Block).filter(
         Block.header_hash == block.header_hash,
@@ -252,7 +239,6 @@ def test_orm_simple_header(session):
     header = HeaderFactory()
 
     session.add(header)
-    session.commit()
 
     header_from_db = session.query(Header).filter(
         Header.hash == header.hash
@@ -265,7 +251,6 @@ def test_orm_genesis_header(session):
     header = HeaderFactory(_parent_hash=None)
 
     session.add(header)
-    session.commit()
 
     header_from_db = session.query(Header).filter(
         Header.hash == header.hash

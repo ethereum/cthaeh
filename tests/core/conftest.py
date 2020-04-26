@@ -25,8 +25,9 @@ def _schema(engine):
 
 @pytest.fixture
 def session(_Session, _schema):
-    session = Session()
+    _session = Session()
+
     try:
-        yield session
+        yield _session
     finally:
-        session.rollback()
+        _session.rollback()
