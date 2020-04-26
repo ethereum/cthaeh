@@ -228,11 +228,12 @@ class LogTopic(Base):
     __table_args__ = (
         UniqueConstraint('idx', 'log_id', name='_idx_log_id'),
     )
+    id = Column(Integer, primary_key=True)
 
     idx = Column(Integer)
 
-    topic_topic = Column(LargeBinary(32), ForeignKey('topic.topic'), primary_key=True)
-    log_id = Column(Integer, ForeignKey('log.id'), primary_key=True)
+    topic_topic = Column(LargeBinary(32), ForeignKey('topic.topic'))
+    log_id = Column(Integer, ForeignKey('log.id'))
 
     topic = relationship('Topic')
     log = relationship('Log')

@@ -1,7 +1,7 @@
 from typing import NamedTuple, Optional, Tuple, Union
 
 from eth_typing import Address, BlockNumber, Hash32
-from sqlalchemy import orm
+from sqlalchemy import orm, or_
 
 from cthaeh.models import Log, Receipt
 
@@ -26,16 +26,17 @@ class FilterParams(NamedTuple):
 
 def filter(session: orm.Session, params: FilterParams) -> Tuple[Log, ...]:
     if isinstance(params.address, tuple):
-        address_filters = tuple(
+        # TODO: or
+        address_filter = or_(*tuple(
             Log.address == address
             for address in params.address
-        )
+        ))
     else:
-        address_filters = ((Log.address == params.address),)
+        address_filter = (Log.address == params.address)
 
     return session.query(Log).join(
         Receipt,
         Log.receipt_hash == Receipt.transaction_hash
     ).filter(
-        *address_filters
+        address_filter
     ).all()

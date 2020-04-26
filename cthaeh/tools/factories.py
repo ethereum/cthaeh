@@ -24,23 +24,31 @@ from cthaeh.models import (
 from cthaeh.session import Session
 
 
+def AddressFactory():
+    return secrets.token_bytes(20)
+
+
+def Hash32Factory():
+    return secrets.token_bytes(32)
+
+
 class HeaderFactory(factory.alchemy.SQLAlchemyModelFactory):
     class Meta:
         model = Header
         sqlalchemy_session = Session
 
-    hash = factory.LazyFunction(lambda: secrets.token_bytes(32))
+    hash = factory.LazyFunction(Hash32Factory)
 
     is_canonical = True
 
     _parent_hash = GENESIS_PARENT_HASH
 
-    uncles_hash = factory.LazyFunction(lambda: secrets.token_bytes(32))
-    coinbase = factory.LazyFunction(lambda: secrets.token_bytes(20))
+    uncles_hash = factory.LazyFunction(Hash32Factory)
+    coinbase = factory.LazyFunction(AddressFactory)
 
-    state_root = factory.LazyFunction(lambda: secrets.token_bytes(32))
-    transaction_root = factory.LazyFunction(lambda: secrets.token_bytes(32))
-    receipt_root = factory.LazyFunction(lambda: secrets.token_bytes(32))
+    state_root = factory.LazyFunction(Hash32Factory)
+    transaction_root = factory.LazyFunction(Hash32Factory)
+    receipt_root = factory.LazyFunction(Hash32Factory)
 
     _bloom = b''
 
@@ -50,7 +58,7 @@ class HeaderFactory(factory.alchemy.SQLAlchemyModelFactory):
     gas_used = 3141592
     timestamp = 0
     extra_data = b''
-    # mix_hash = factory.LazyFunction(lambda: secrets.token_bytes(32))
+    # mix_hash = factory.LazyFunction(Hash32Factory)
     nonce = factory.LazyFunction(lambda: secrets.token_bytes(8))
 
 
@@ -77,21 +85,21 @@ class TransactionFactory(factory.alchemy.SQLAlchemyModelFactory):
         sqlalchemy_session = Session
 
     # TODO: Compute via RLP
-    hash = factory.LazyFunction(lambda: secrets.token_bytes(32))
+    hash = factory.LazyFunction(Hash32Factory)
 
     block = factory.SubFactory(BlockFactory)
 
     nonce = 0
     gas_price = 1
     gas = 21000
-    to = factory.LazyFunction(lambda: secrets.token_bytes(20))
+    to = factory.LazyFunction(AddressFactory)
     value = b'\x00'
     data = b''
     v = b'\x00' * 32
     r = b'\x00' * 32
     s = b'\x00' * 32
 
-    sender = factory.LazyFunction(lambda: secrets.token_bytes(20))
+    sender = factory.LazyFunction(AddressFactory)
 
 
 class BlockTransactionFactory(factory.alchemy.SQLAlchemyModelFactory):
@@ -110,7 +118,7 @@ class ReceiptFactory(factory.alchemy.SQLAlchemyModelFactory):
 
     transaction = factory.SubFactory(TransactionFactory)
 
-    state_root = factory.LazyFunction(lambda: secrets.token_bytes(32))
+    state_root = factory.LazyFunction(Hash32Factory)
     _bloom = b''
     gas_used = 21000
 
@@ -123,7 +131,7 @@ class LogFactory(factory.alchemy.SQLAlchemyModelFactory):
     idx = 0
     receipt = factory.SubFactory(ReceiptFactory)
 
-    address = factory.LazyFunction(lambda: secrets.token_bytes(20))
+    address = factory.LazyFunction(AddressFactory)
     data = b''
 
 
@@ -132,7 +140,7 @@ class TopicFactory(factory.alchemy.SQLAlchemyModelFactory):
         model = Topic
         sqlalchemy_session = Session
 
-    topic = factory.LazyFunction(lambda: secrets.token_bytes(32))
+    topic = factory.LazyFunction(Hash32Factory)
 
 
 class LogTopicFactory(factory.alchemy.SQLAlchemyModelFactory):
