@@ -2,9 +2,9 @@ from typing import NamedTuple, Optional, Tuple, Union
 
 from eth_typing import Address, BlockNumber, Hash32
 from eth_utils import to_tuple
-from sqlalchemy import orm, or_, Constraint
+from sqlalchemy import and_, orm, or_, Constraint
 
-from cthaeh.models import Block, Header, Log, Receipt, Transaction
+from cthaeh.models import Block, Header, Log, LogTopic, Receipt, Transaction
 
 
 BlockIdentifier = BlockNumber
@@ -54,6 +54,24 @@ def _construct_filters(params: FilterParams) -> Tuple[Constraint, ...]:
     else:
         raise TypeError(f"Invalid to_block parameter: {params.to_block!r}")
 
+    for idx, topic in enumerate(params.topics):
+        if isinstance(topic, bytes):
+            yield and_(
+                LogTopic.idx == idx,
+                LogTopic.topic_topic == topic,
+            )
+        elif isinstance(topic, tuple):
+            yield or_(*(
+                and_(
+                    LogTopic.idx == idx,
+                    LogTopic.topic_topic == sub_topic,
+                ) for sub_topic in topic
+            ))
+        elif topic is None:
+            pass
+        else:
+            raise TypeError(f"Unsupported topic at index {idx}: {topic!r}")
+
 
 def filter(session: orm.Session, params: FilterParams) -> Tuple[Log, ...]:
     orm_filters = _construct_filters(params)
@@ -70,4 +88,7 @@ def filter(session: orm.Session, params: FilterParams) -> Tuple[Log, ...]:
     ).join(
         Header,
         Block.header_hash == Header.hash,
+    ).outerjoin(
+        LogTopic,
+        Log.id == LogTopic.log_id,
     ).filter(*orm_filters).all()

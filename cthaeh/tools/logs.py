@@ -51,10 +51,12 @@ def check_log_matches_filter(params: FilterParams, log: Log) -> None:
     for expected_topic, actual_topic in zipped_topics:
         if expected_topic is None:
             assert actual_topic is not None
+        elif actual_topic is None:
+            assert expected_topic is None
         elif isinstance(expected_topic, tuple):
-            assert any(topic == actual_topic for topic in expected_topic)
+            assert any(topic == actual_topic.topic for topic in expected_topic)
         elif isinstance(expected_topic, bytes):
-            assert expected_topic == actual_topic
+            assert expected_topic == actual_topic.topic
         else:
             raise Exception("Invariant")
 

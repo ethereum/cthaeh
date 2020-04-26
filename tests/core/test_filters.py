@@ -1,6 +1,6 @@
 from cthaeh.filter import filter, FilterParams
 from cthaeh.tools.logs import construct_log, check_filter_results
-from cthaeh.tools.factories import AddressFactory
+from cthaeh.tools.factories import AddressFactory, Hash32Factory
 
 
 def test_filter_log_empty_params(session):
@@ -36,6 +36,7 @@ def test_filter_log_multiple_addresses(session):
     other = AddressFactory()
 
     log = construct_log(session, address=address)
+    construct_log(session)  # another log that doesn't match
 
     params = FilterParams(address=(other, address))
 
@@ -49,8 +50,6 @@ def test_filter_log_multiple_addresses(session):
 
 
 def test_filter_log_before_from_block(session):
-    from cthaeh.models import Header
-    assert session.query(Header).count() == 0
     construct_log(session, block_number=0)
 
     params = FilterParams(from_block=1)
@@ -70,6 +69,7 @@ def test_filter_log_after_to_block(session):
 
 def test_filter_log_after_from_block_null_to_block(session):
     log = construct_log(session, block_number=2)
+    construct_log(session, block_number=0)  # another log that doesn't match
 
     params = FilterParams(from_block=1)
 
@@ -82,6 +82,7 @@ def test_filter_log_after_from_block_null_to_block(session):
 
 def test_filter_log_null_from_block_before_to_block(session):
     log = construct_log(session, block_number=2)
+    construct_log(session, block_number=6)  # another log that doesn't match
 
     params = FilterParams(to_block=5)
 
@@ -90,3 +91,65 @@ def test_filter_log_null_from_block_before_to_block(session):
 
     assert len(results) == 1
     assert results[0].id == log.id
+
+
+def test_filter_log_single_topic(session):
+    topic = Hash32Factory()
+    log = construct_log(session, topics=(topic,))
+    construct_log(session)  # another log that doesn't match
+
+    params = FilterParams(topics=(topic,))
+
+    results = filter(session, params)
+    check_filter_results(params, results)
+
+    assert len(results) == 1
+    assert results[0].id == log.id
+    assert results[0].topics[0].topic == topic
+
+
+def test_filter_log_single_topic_out_of_position(session):
+    topic = Hash32Factory()
+    wrong_topic = Hash32Factory()
+    construct_log(session, topics=(wrong_topic, topic,))
+
+    params = FilterParams(topics=(topic,))
+
+    results = filter(session, params)
+    check_filter_results(params, results)
+
+    assert len(results) == 0
+
+
+def test_filter_log_single_topic_second_position(session):
+    topic = Hash32Factory()
+    log = construct_log(session, topics=(Hash32Factory(), topic,))
+    construct_log(session)  # another log that doesn't match
+
+    params = FilterParams(topics=(None, topic,))
+
+    results = filter(session, params)
+    check_filter_results(params, results)
+
+    assert len(results) == 1
+    assert results[0].id == log.id
+    assert results[0].topics[1].topic == topic
+
+
+def test_filter_params_with_multiple_options_for_topic(session):
+    topic_a = Hash32Factory()
+    topic_b = Hash32Factory()
+    log_a = construct_log(session, topics=(topic_a,))
+    log_b = construct_log(session, topics=(topic_b,))
+    construct_log(session)  # another log that doesn't match
+
+    params = FilterParams(topics=((topic_a, topic_b),))
+
+    results = filter(session, params)
+    check_filter_results(params, results)
+
+    assert len(results) == 2
+    assert results[0].id in {log_a.id, log_b.id}
+    assert results[1].id in {log_a.id, log_b.id}
+    assert results[0].topics[0].topic in {topic_a, topic_b}
+    assert results[1].topics[0].topic in {topic_a, topic_b}
