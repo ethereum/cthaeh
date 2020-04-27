@@ -114,6 +114,6 @@ def filter_logs(session: orm.Session, params: FilterParams) -> Tuple[Log, ...]:
         Log.id == logtopic_3.log_id,
     ).filter(*orm_filters)
 
-    logger.info('QUERY: %s', query)
+    logger.debug('PARAMS: %s  QUERY: %s', params, query)
 
     return tuple(query.all())
