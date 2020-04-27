@@ -1,4 +1,5 @@
 import logging
+import pathlib
 from typing import Optional
 
 from async_service import Service
@@ -11,6 +12,7 @@ from cthaeh.exfiltration import Exfiltrator
 from cthaeh.ir import Block as BlockIR
 from cthaeh.loader import BlockLoader
 from cthaeh.models import Header
+from cthaeh.rpc import RPCServer
 
 
 def determine_start_block(session: orm.Session) -> BlockNumber:
@@ -34,6 +36,7 @@ class Application(Service):
                  start_block: Optional[BlockNumber],
                  end_block: Optional[BlockNumber],
                  concurrency: int,
+                 ipc_path: pathlib.Path,
                  ) -> None:
         block_send_channel, block_receive_channel = trio.open_memory_channel[BlockIR](128)
         if start_block is None:
@@ -50,8 +53,13 @@ class Application(Service):
             session=session,
             block_receive_channel=block_receive_channel,
         )
+        self.rpc_server = RPCServer(
+            ipc_path=ipc_path,
+            session=session,
+        )
 
     async def run(self) -> None:
         self.manager.run_daemon_child_service(self.exfiltrator)
         self.manager.run_daemon_child_service(self.loader)
+        self.manager.run_daemon_child_service(self.rpc_server)
         await self.manager.wait_finished()

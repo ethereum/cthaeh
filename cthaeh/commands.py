@@ -58,12 +58,16 @@ async def do_main(args: argparse.Namespace) -> None:
 
     from web3.auto.ipc import w3
 
+    cthaeh_root = get_xdg_cthaeh_root()
+    ipc_path = cthaeh_root / 'jsonrpc.ipc'
+
     app = Application(
         w3,
         session,
         start_block=start_block,
         end_block=end_block,
         concurrency=args.concurrency,
+        ipc_path=ipc_path,
     )
 
     logger.info("Started main process (pid=%d)", os.getpid())
