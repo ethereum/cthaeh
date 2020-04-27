@@ -21,11 +21,14 @@ from cthaeh.ir import (
     Receipt as ReceiptIR,
     Log as LogIR,
 )
+from cthaeh.session import Session
 
 Base = declarative_base()
 
 
 class BlockUncle(Base):
+    query = Session.query_property()
+
     __tablename__ = 'blockuncle'
     __table_args__ = (
         UniqueConstraint('idx', 'block_header_hash', name="_idx_block_header_hash"),
@@ -42,6 +45,8 @@ class BlockUncle(Base):
 
 
 class Header(Base):
+    query = Session.query_property()
+
     __tablename__ = 'header'
 
     hash = Column(LargeBinary(32), primary_key=True)
@@ -111,6 +116,8 @@ class Header(Base):
 
 
 class BlockTransaction(Base):
+    query = Session.query_property()
+
     __tablename__ = 'blocktransaction'
     __table_args__ = (
         UniqueConstraint('idx', 'block_header_hash', name="_idx_block_header_hash"),
@@ -130,6 +137,8 @@ class BlockTransaction(Base):
 
 
 class Block(Base):
+    query = Session.query_property()
+
     __tablename__ = 'block'
 
     header_hash = Column(LargeBinary(32), ForeignKey('header.hash'), primary_key=True)
@@ -148,6 +157,8 @@ class Block(Base):
 
 
 class Transaction(Base):
+    query = Session.query_property()
+
     __tablename__ = 'transaction'
 
     hash = Column(LargeBinary(32), primary_key=True)
@@ -195,6 +206,8 @@ class Transaction(Base):
 
 
 class Receipt(Base):
+    query = Session.query_property()
+
     __tablename__ = 'receipt'
 
     transaction_hash = Column(LargeBinary(32), ForeignKey("transaction.hash"), primary_key=True)
@@ -224,6 +237,8 @@ class Receipt(Base):
 
 
 class LogTopic(Base):
+    query = Session.query_property()
+
     __tablename__ = 'logtopic'
     __table_args__ = (
         UniqueConstraint('idx', 'log_id', name='_idx_log_id'),
@@ -240,6 +255,8 @@ class LogTopic(Base):
 
 
 class Log(Base):
+    query = Session.query_property()
+
     __tablename__ = 'log'
     __table_args__ = (
         UniqueConstraint('idx', 'receipt_hash', name="_idx_receipt_hash"),
@@ -297,6 +314,8 @@ class Log(Base):
 
 
 class Topic(Base):
+    query = Session.query_property()
+
     __tablename__ = 'topic'
 
     topic = Column(LargeBinary(32), primary_key=True)
@@ -306,3 +325,9 @@ class Topic(Base):
         secondary="logtopic",
         order_by=LogTopic.idx,
     )
+
+    def __repr__(self) -> str:
+        return f"Topic(topic={self.topic!r})"
+
+    def __str__(self) -> str:
+        return f"Topic[{humanize_hash(self.topic)}]"

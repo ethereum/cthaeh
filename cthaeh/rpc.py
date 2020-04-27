@@ -3,13 +3,27 @@ import io
 import json
 import logging
 import pathlib
-from typing import Any, List, Mapping, Optional, Tuple, cast
-
-from eth_utils import ValidationError
-from mypy_extensions import TypedDict
-import trio
+from typing import Any, Iterable, List, Mapping, Optional, Sequence, Tuple, Union, cast
 
 from async_service import Service
+from eth_typing import Address, BlockNumber, Hash32, HexStr
+from eth_utils import (
+    ValidationError,
+    decode_hex,
+    encode_hex,
+    is_address,
+    to_checksum_address,
+    to_canonical_address,
+    to_hex,
+    to_int,
+    to_tuple,
+)
+from mypy_extensions import TypedDict
+from sqlalchemy import orm
+import trio
+
+from cthaeh.filter import FilterParams, filter_logs
+from cthaeh.models import BlockTransaction, Log
 
 
 NEW_LINE = "\n"
@@ -51,6 +65,15 @@ class RPCRequest(TypedDict):
     id: Optional[int]
 
 
+class RawFilterParams(TypedDict, total=False):
+    fromBlock: Optional[BlockNumber]
+    toBlock: Optional[BlockNumber]
+    address: Union[None, Address, List[Address]]
+    topics: List[
+        Union[None, Hash32, List[Hash32]]
+    ]
+
+
 def generate_response(request: RPCRequest, result: Any, error: Optional[str]) -> str:
     response = {
         'id': request.get('id', -1),
@@ -76,8 +99,10 @@ class RPCServer(Service):
 
     def __init__(self,
                  ipc_path: pathlib.Path,
+                 session: orm.Session,
                  ) -> None:
         self.ipc_path = ipc_path
+        self.session = session
         self._serving = trio.Event()
 
     async def wait_serving(self) -> None:
@@ -202,5 +227,104 @@ class RPCServer(Service):
     #
     # RPC Method Handlers
     #
-    async def _handle_getLogs(self, request: RPCRequest) -> str:
-        raise NotImplementedError
+    async def _handle_getLogs(self,
+                              request: RPCRequest,
+                              raw_params: RawFilterParams) -> str:
+        params = _rpc_request_to_filter_params(raw_params)
+        logs = filter_logs(self.session, params)
+        results = tuple(_log_to_rpc_response(log) for log in logs)
+        return generate_response(request, results, None)
+
+
+class RPCLog(TypedDict):
+    logIndex: HexStr
+    transactionIndex: HexStr
+    transactionHash: HexStr
+    blockHash: HexStr
+    blockNumber: HexStr
+    address: HexStr
+    data: HexStr
+    topics: List[HexStr]
+
+
+@to_tuple
+def _normalize_topics(raw_topics: List[Union[None, HexStr, List[HexStr]]],
+                      ) -> Iterable[Union[None, Hash32, Tuple[Hash32, ...]]]:
+    for topic in raw_topics:
+        if topic is None:
+            yield None
+        elif isinstance(topic, str):
+            yield decode_hex(topic)
+        elif isinstance(topic, Sequence):
+            yield tuple(decode_hex(sub_topic) for sub_topic in topic)
+        else:
+            raise TypeError(f"Unsupported topic: {topic!r}")
+
+
+def _rpc_request_to_filter_params(raw_params: RawFilterParams) -> FilterParams:
+    if 'address' not in raw_params:
+        address = None
+    elif raw_params['address'] is None:
+        address = None
+    elif is_address(raw_params['address']):
+        address = to_canonical_address(raw_params['address'])
+    elif isinstance(raw_params['address'], list):
+        address = tuple(
+            to_canonical_address(sub_address)
+            for sub_address in raw_params['address']
+        )
+    else:
+        raise TypeError(f"Unsupported address: {raw_params['address']!r}")
+
+    if 'topics' not in raw_params:
+        topics = ()
+    elif raw_params['topics'] is None:
+        topics = ()
+    elif isinstance(raw_params['topics'], Sequence):
+        topics = _normalize_topics(raw_params['topics'])
+    else:
+        raise TypeError(f"Unsupported topics: {raw_params['topics']!r}")
+
+    if 'fromBlock' not in raw_params:
+        from_block = None
+    elif raw_params['fromBlock'] is None:
+        from_block = None
+    elif isinstance(raw_params['fromBlock'], str):
+        from_block = to_int(hexstr=raw_params['fromBlock'])
+    else:
+        raise TypeError(f"Unsupported fromBlock: {raw_params['fromBlock']!r}")
+
+    if 'toBlock' not in raw_params:
+        to_block = None
+    elif raw_params['toBlock'] is None:
+        to_block = None
+    elif isinstance(raw_params['toBlock'], str):
+        to_block = to_int(hexstr=raw_params['toBlock'])
+    else:
+        raise TypeError(f"Unsupported toBlock: {raw_params['toBlock']!r}")
+
+    return FilterParams(
+        from_block,
+        to_block,
+        address,
+        topics,
+    )
+
+
+def _log_to_rpc_response(log: Log) -> RPCLog:
+    transaction = log.receipt.transaction
+    blocktransaction = BlockTransaction.query.filter(
+        BlockTransaction.transaction_hash == transaction.hash,
+        BlockTransaction.block_header_hash == transaction.block_header_hash
+    ).one()
+
+    return RPCLog(
+        logIndex=to_hex(log.idx),
+        transactionIndex=to_hex(blocktransaction.idx),
+        transactionHash=encode_hex(transaction.hash),
+        blockHash=encode_hex(transaction.block.header_hash),
+        blockNumber=to_hex(transaction.block.header.block_number),
+        address=to_checksum_address(log.address),
+        data=encode_hex(log.data),
+        topics=[encode_hex(topic.topic) for topic in log.topics],
+    )

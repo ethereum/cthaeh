@@ -19,8 +19,8 @@ from .factories import (
 )
 
 
-def check_filter_results(params: FilterParams, logs: Sequence[Log]) -> None:
-    for log in logs:
+def check_filter_results(params: FilterParams, results: Sequence[Log]) -> None:
+    for log in results:
         check_log_matches_filter(params, log)
 
 
@@ -96,12 +96,19 @@ def construct_log(session: Session,
             address=address,
             data=data,
         )
+        block_transaction = BlockTransactionFactory(
+            idx=0,
+            block=log.receipt.transaction.block,
+            transaction=log.receipt.transaction,
+        )
+        session.add(block_transaction)
     else:
         log = LogFactory(
             receipt__transaction__block=None,
         )
         block = BlockFactory(header=header)
         block_transaction = BlockTransactionFactory(
+            idx=0,
             block=block,
             transaction=log.receipt.transaction,
         )

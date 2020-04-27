@@ -13,21 +13,23 @@ def engine():
 
 
 @pytest.fixture(scope="session")
-def _Session(engine):
-    Session.configure(bind=engine)
-    return Session
-
-
-@pytest.fixture(scope="session")
 def _schema(engine):
     Base.metadata.create_all(engine)
 
 
+@pytest.fixture(scope="session")
+def _Session(engine, _schema):
+    Session.configure(bind=engine)
+    return Session
+
+
 @pytest.fixture
 def session(_Session, _schema):
-    _session = Session()
+    session = Session()
+    transaction = session.begin_nested()
 
     try:
-        yield _session
+        yield session
     finally:
-        _session.rollback()
+        transaction.rollback()
+        session.close()

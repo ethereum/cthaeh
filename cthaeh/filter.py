@@ -1,8 +1,10 @@
+import logging
 from typing import NamedTuple, Optional, Tuple, Union
 
 from eth_typing import Address, BlockNumber, Hash32
 from eth_utils import to_tuple
 from sqlalchemy import and_, orm, or_, Constraint
+from sqlalchemy.orm import aliased
 
 from cthaeh.models import Block, Header, Log, LogTopic, Receipt, Transaction
 
@@ -17,12 +19,22 @@ BlockIdentifier = BlockNumber
 # ]
 Topic = Union[None, Hash32, Tuple[Hash32, ...]]
 
+logger = logging.getLogger('cthaeh.filter')
+
 
 class FilterParams(NamedTuple):
     from_block: Optional[BlockIdentifier] = None
     to_block: Optional[BlockIdentifier] = None
     address: Union[None, Address, Tuple[Address, ...]] = None
     topics: Tuple[Topic, ...] = ()
+
+
+logtopic_0 = aliased(LogTopic)
+logtopic_1 = aliased(LogTopic)
+logtopic_2 = aliased(LogTopic)
+logtopic_3 = aliased(LogTopic)
+
+LOG_TOPIC_ALIASES = (logtopic_0, logtopic_1, logtopic_2, logtopic_3)
 
 
 @to_tuple
@@ -54,17 +66,17 @@ def _construct_filters(params: FilterParams) -> Tuple[Constraint, ...]:
     else:
         raise TypeError(f"Invalid to_block parameter: {params.to_block!r}")
 
-    for idx, topic in enumerate(params.topics):
+    for idx, (topic, alias) in enumerate(zip(params.topics, LOG_TOPIC_ALIASES)):
         if isinstance(topic, bytes):
             yield and_(
-                LogTopic.idx == idx,
-                LogTopic.topic_topic == topic,
+                alias.idx == idx,
+                alias.topic_topic == topic,
             )
         elif isinstance(topic, tuple):
             yield or_(*(
                 and_(
-                    LogTopic.idx == idx,
-                    LogTopic.topic_topic == sub_topic,
+                    alias.idx == idx,
+                    alias.topic_topic == sub_topic,
                 ) for sub_topic in topic
             ))
         elif topic is None:
@@ -73,10 +85,10 @@ def _construct_filters(params: FilterParams) -> Tuple[Constraint, ...]:
             raise TypeError(f"Unsupported topic at index {idx}: {topic!r}")
 
 
-def filter(session: orm.Session, params: FilterParams) -> Tuple[Log, ...]:
+def filter_logs(session: orm.Session, params: FilterParams) -> Tuple[Log, ...]:
     orm_filters = _construct_filters(params)
 
-    return session.query(Log).join(
+    query = session.query(Log).join(
         Receipt,
         Log.receipt_hash == Receipt.transaction_hash,
     ).join(
@@ -89,6 +101,19 @@ def filter(session: orm.Session, params: FilterParams) -> Tuple[Log, ...]:
         Header,
         Block.header_hash == Header.hash,
     ).outerjoin(
-        LogTopic,
-        Log.id == LogTopic.log_id,
-    ).filter(*orm_filters).all()
+        logtopic_0,
+        Log.id == logtopic_0.log_id,
+    ).outerjoin(
+        logtopic_1,
+        Log.id == logtopic_1.log_id,
+    ).outerjoin(
+        logtopic_2,
+        Log.id == logtopic_2.log_id,
+    ).outerjoin(
+        logtopic_3,
+        Log.id == logtopic_3.log_id,
+    ).filter(*orm_filters)
+
+    logger.info('QUERY: %s', query)
+
+    return tuple(query.all())

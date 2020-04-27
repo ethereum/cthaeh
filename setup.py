@@ -8,6 +8,7 @@ from setuptools import (
 extras_require = {
     'test': [
         "factory-boy==2.12.0",
+        "hypothesis==5.10.4",
         "pytest==5.4.1",
         "pytest-xdist==1.31.0",
         "pytest-trio==0.5.2",
