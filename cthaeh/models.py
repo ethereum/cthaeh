@@ -11,6 +11,7 @@ from sqlalchemy import (
     Boolean,
     ForeignKey,
     UniqueConstraint,
+    Index,
 )
 from sqlalchemy.orm import relationship, backref
 
@@ -31,8 +32,8 @@ class BlockUncle(Base):
 
     __tablename__ = 'blockuncle'
     __table_args__ = (
-        UniqueConstraint('idx', 'block_header_hash', name="_idx_block_header_hash"),
-        UniqueConstraint('block_header_hash', 'uncle_hash', name="_block_header_hash_uncle_hash"),
+        Index("ix_blockuncle_idx_block_header_hash", "idx", "block_header_hash", unique=True),
+        Index("ix_block_header_hash_uncle_hash", "block_header_hash", "uncle_hash", unique=True),
     )
 
     idx = Column(Integer)
@@ -60,7 +61,7 @@ class Header(Base):
 
     is_canonical = Column(Boolean)
 
-    _parent_hash = Column(LargeBinary(32), ForeignKey('header.hash'), nullable=True)
+    _parent_hash = Column(LargeBinary(32), ForeignKey('header.hash'), nullable=True, index=True)
     uncles_hash = Column(LargeBinary(32))
     coinbase = Column(LargeBinary(20))
     state_root = Column(LargeBinary(32))
@@ -68,7 +69,7 @@ class Header(Base):
     receipt_root = Column(LargeBinary(32))
     _bloom = Column(LargeBinary(1024))
     difficulty = Column(LargeBinary(32))
-    block_number = Column(BigInteger)
+    block_number = Column(BigInteger, index=True)
     gas_limit = Column(BigInteger)
     gas_used = Column(BigInteger)
     timestamp = Column(Integer)
@@ -120,11 +121,12 @@ class BlockTransaction(Base):
 
     __tablename__ = 'blocktransaction'
     __table_args__ = (
-        UniqueConstraint('idx', 'block_header_hash', name="_idx_block_header_hash"),
-        UniqueConstraint(
+        Index("ix_blocktransaction_idx_block_header_hash", 'idx', 'block_header_hash', unique=True),
+        Index(
+            "ix_block_header_hash_transaction_hash",
             'block_header_hash',
             'transaction_hash',
-            name="_block_header_hash_transaction_hash",
+            unique=True,
         ),
     )
     idx = Column(Integer)
@@ -163,7 +165,12 @@ class Transaction(Base):
 
     hash = Column(LargeBinary(32), primary_key=True)
 
-    block_header_hash = Column(LargeBinary(32), ForeignKey("block.header_hash"), nullable=True)
+    block_header_hash = Column(
+        LargeBinary(32),
+        ForeignKey("block.header_hash"),
+        nullable=True,
+        index=True,
+    )
     block = relationship("Block")
 
     blocks = relationship(
@@ -241,14 +248,15 @@ class LogTopic(Base):
 
     __tablename__ = 'logtopic'
     __table_args__ = (
-        UniqueConstraint('idx', 'log_id', name='_idx_log_id'),
+        UniqueConstraint('idx', 'log_id', name='ix_idx_log_id'),
+        Index("ix_idx_topic_topic_log_id", "idx", "topic_topic", "log_id"),
     )
     id = Column(Integer, primary_key=True)
 
     idx = Column(Integer)
 
-    topic_topic = Column(LargeBinary(32), ForeignKey('topic.topic'))
-    log_id = Column(Integer, ForeignKey('log.id'))
+    topic_topic = Column(LargeBinary(32), ForeignKey('topic.topic'), index=True)
+    log_id = Column(Integer, ForeignKey('log.id'), index=True)
 
     topic = relationship('Topic')
     log = relationship('Log')
@@ -259,16 +267,16 @@ class Log(Base):
 
     __tablename__ = 'log'
     __table_args__ = (
-        UniqueConstraint('idx', 'receipt_hash', name="_idx_receipt_hash"),
+        UniqueConstraint('idx', 'receipt_hash', name="ix_idx_receipt_hash"),
     )
 
     id = Column(Integer, primary_key=True)
     idx = Column(Integer)
 
-    receipt_hash = Column(LargeBinary(32), ForeignKey('receipt.transaction_hash'))
+    receipt_hash = Column(LargeBinary(32), ForeignKey('receipt.transaction_hash'), index=True)
     receipt = relationship("Receipt", back_populates="logs")
 
-    address = Column(LargeBinary(20))
+    address = Column(LargeBinary(20), index=True)
     topics = relationship(
         "Topic",
         secondary="logtopic",

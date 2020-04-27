@@ -1,3 +1,5 @@
+import bisect
+import collections
 import itertools
 import logging
 from typing import Iterator, Optional, Sequence
@@ -51,20 +53,63 @@ class Exfiltrator(Service):
         )
         semaphor = trio.Semaphore(self._concurrency_factor, max_value=self._concurrency_factor)
 
+        (
+            relay_send_channel,
+            relay_receive_channel,
+        ) = trio.open_memory_channel[Block](self._concurrency_factor - 1)
+
+        self.manager.run_daemon_task(self._collate_and_relay, relay_receive_channel)
+
         async def _fetch(block_number: int) -> None:
             # TODO: handle web3 failures
             self.logger.debug("Retrieving block #%d", block_number)
             block = await retrieve_block(self.w3, block_number)
             self.logger.debug("Retrieved block #%d", block_number)
             semaphor.release()
-            await self._block_send_channel.send(block)
+            await relay_send_channel.send(block)
 
         async with self._block_send_channel:
-            async with trio.open_nursery() as nursery:
-                while self.manager.is_running:
-                    for block_number in iter_block_numbers(self.start_at, self.end_at):
-                        await semaphor.acquire()
-                        nursery.start_soon(_fetch, block_number)
+            async with relay_send_channel:
+                async with trio.open_nursery() as nursery:
+                    while self.manager.is_running:
+                        for block_number in iter_block_numbers(self.start_at, self.end_at):
+                            await semaphor.acquire()
+                            nursery.start_soon(_fetch, block_number)
+
+    async def _collate_and_relay(self, receive_channel: trio.abc.ReceiveChannel[Block]) -> None:
+        buffer: Deque[Block] = collections.deque()
+
+        next_block_number = self.start_at
+        async with receive_channel:
+            async for block in receive_channel:
+                self.logger.debug(
+                    "Waiting for #%d, Got block #%d",
+                    next_block_number,
+                    block.header.block_number,
+                )
+                if block.header.block_number == next_block_number:
+                    await self._block_send_channel.send(block)
+                    next_block_number += 1
+                elif block.header.block_number > next_block_number:
+                    bisect.insort_left(buffer, block)
+
+                    if len(buffer) > self._concurrency_factor:
+                        raise Exception(
+                            f"Corruption detected: "
+                            f"concurrency={self._concurrency_factor} "
+                            f"waiting_for={next_block_number} "
+                            f"buffer={tuple(block.header.block_number for block in buffer)}"
+                        )
+                    continue
+                else:
+                    raise Exception("Expected next block number {next_block_number}.  Got: {block}")
+
+                while buffer:
+                    if buffer[0].header.block_number == next_block_number:
+                        await self._block_send_channel.send(buffer.popleft())
+                        next_block_number += 1
+                        continue
+                    break
 
 
 async def retrieve_block(w3: Web3, block_number: int) -> Block:

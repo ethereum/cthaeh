@@ -33,6 +33,9 @@ extras_require = {
         "twine",
         "ipython",
     ],
+    'postgres': [
+        "psycopg2==2.8.5",
+    ],
 }
 
 extras_require['dev'] = (

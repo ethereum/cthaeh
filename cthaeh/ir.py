@@ -1,6 +1,8 @@
-from typing import NamedTuple, Optional, Tuple
+import functools
+from typing import Any, NamedTuple, Optional, Tuple
 
 from eth_typing import Address, Hash32
+from eth_utils import humanize_hash, to_checksum_address
 
 
 class Header(NamedTuple):
@@ -47,6 +49,18 @@ class Log(NamedTuple):
     topics: Tuple[Hash32, ...]
     data: bytes
 
+    def __repr__(self) -> str:
+        return f"Log(address={self.address!r}, topics={self.topics!r}, data={self.data!r})"  # noqa: E501
+
+    def __str__(self) -> str:
+        return (
+            f"Log("
+            f"address={to_checksum_address(self.address)}, "
+            f"topics={tuple(humanize_hash(topic) for topic in self.topics)}, "
+            f"data={humanize_hash(self.data)}"
+            ")"
+        )
+
 
 class Receipt(NamedTuple):
     state_root: Hash32
@@ -54,9 +68,39 @@ class Receipt(NamedTuple):
     bloom: bytes
     logs: Tuple[Log, ...]
 
+    def __repr__(self) -> str:
+        return f"Receipt(state_root={self.state_root!r}, gas_used={self.gas_used!r}, bloom={self.bloom!r}, logs={self.logs!r})"  # noqa: E501
 
+    def __str__(self) -> str:
+        return (
+            f"Receipt("
+            f"state_root={humanize_hash(self.state_root)}, "
+            f"gas_used={self.gas_used}, "
+            f"bloom={humanize_hash(self.bloom)}, "
+            f"logs={tuple(str(log) for log in self.logs)}"
+            ")"
+        )
+
+
+@functools.total_ordering
 class Block(NamedTuple):
     header: Header
     transactions: Tuple[Transaction, ...]
     uncles: Tuple[Header, ...]
     receipts: Tuple[Receipt, ...]
+
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, type(self)):
+            return False
+        return self.header.hash == other.header.hash
+
+    def __lt__(self, other: Any) -> bool:
+        if not isinstance(other, type(self)):
+            raise TypeError(f"Cannot compare Block to {other!r}")
+        return self.header.block_number < other.header.block_number
+
+    def __repr__(self) -> str:
+        return f"Block(header={self.header!r}, transactions={self.transactions!r}, uncles={self.uncles!r}, receipts={self.receipts!r})"  # noqa: E501
+
+    def __str__(self) -> str:
+        return f"Block[{humanize_hash(self.header.hash)}]"
