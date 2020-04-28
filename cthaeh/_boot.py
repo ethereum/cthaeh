@@ -52,9 +52,11 @@ class BootService(Service):
 
 
 def _boot() -> None:
+    #from cthaeh._profiling import profiler
     try:
         manager = TrioManager(BootService())
 
+        #with profiler('/home/piper/projects/cthaeh/tmp/profile.stats'):
         trio.run(manager.run)
     except KeyboardInterrupt:
         import logging

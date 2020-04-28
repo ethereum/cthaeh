@@ -2,6 +2,7 @@ import bisect
 import collections
 import itertools
 import logging
+import math
 from typing import Iterator, Optional, Sequence
 
 from async_service import Service
@@ -79,6 +80,15 @@ class Exfiltrator(Service):
     async def _collate_and_relay(self, receive_channel: trio.abc.ReceiveChannel[Block]) -> None:
         buffer: Deque[Block] = collections.deque()
 
+        concurrency_factor = self._concurrency_factor
+
+        warning_threshold = concurrency_factor + max(
+            1,
+            int(math.ceil(math.sqrt(concurrency_factor)))
+        )
+        error_threshold = warning_threshold * 2
+        exception_threshold = error_threshold * 2
+
         next_block_number = self.start_at
         async with receive_channel:
             async for block in receive_channel:
@@ -93,13 +103,38 @@ class Exfiltrator(Service):
                 elif block.header.block_number > next_block_number:
                     bisect.insort_left(buffer, block)
 
-                    if len(buffer) > self._concurrency_factor:
+                    if len(buffer) > exception_threshold:
                         raise Exception(
-                            f"Corruption detected: "
-                            f"concurrency={self._concurrency_factor} "
+                            f"Collation buffer exceeded reasonable limits: "
+                            f"concurrency={concurrency_factor} "
                             f"waiting_for={next_block_number} "
-                            f"buffer={tuple(block.header.block_number for block in buffer)}"
+                            f"buffer={tuple(blk.header.block_number for blk in buffer)}"
                         )
+                    elif len(buffer) > error_threshold:
+                        self.logger.error(
+                            "Collation buffer exceeded error threshold:"
+                            "threshold=%d "
+                            "concurrency=%d "
+                            "waiting_for=%d "
+                            "buffer=%s ",
+                            error_threshold,
+                            concurrency_factor,
+                            next_block_number,
+                            tuple(blk.header.block_number for blk in buffer),
+                        )
+                    elif len(buffer) > warning_threshold:
+                        self.logger.warning(
+                            "Collation buffer exceeded warning threshold:"
+                            "threshold=%d "
+                            "concurrency=%d "
+                            "waiting_for=%d "
+                            "buffer=%s ",
+                            error_threshold,
+                            concurrency_factor,
+                            next_block_number,
+                            tuple(blk.header.block_number for blk in buffer),
+                        )
+
                     continue
                 else:
                     raise Exception("Expected next block number {next_block_number}.  Got: {block}")

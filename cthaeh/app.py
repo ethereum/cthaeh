@@ -29,6 +29,7 @@ def determine_start_block(session: orm.Session) -> BlockNumber:
 
 class Application(Service):
     logger = logging.getLogger('cthaeh.Cthaeh')
+    rpc_server: Optional[RPCServer] = None
 
     def __init__(self,
                  w3: Web3,
@@ -36,7 +37,7 @@ class Application(Service):
                  start_block: Optional[BlockNumber],
                  end_block: Optional[BlockNumber],
                  concurrency: int,
-                 ipc_path: pathlib.Path,
+                 ipc_path: Optional[pathlib.Path],
                  ) -> None:
         block_send_channel, block_receive_channel = trio.open_memory_channel[BlockIR](128)
         if start_block is None:
@@ -53,13 +54,15 @@ class Application(Service):
             session=session,
             block_receive_channel=block_receive_channel,
         )
-        self.rpc_server = RPCServer(
-            ipc_path=ipc_path,
-            session=session,
-        )
+        if ipc_path is not None:
+            self.rpc_server = RPCServer(
+                ipc_path=ipc_path,
+                session=session,
+            )
 
     async def run(self) -> None:
         self.manager.run_daemon_child_service(self.exfiltrator)
         self.manager.run_daemon_child_service(self.loader)
-        self.manager.run_daemon_child_service(self.rpc_server)
+        if self.rpc_server is not None:
+            self.manager.run_daemon_child_service(self.rpc_server)
         await self.manager.wait_finished()

@@ -1,4 +1,5 @@
 from async_service import Service
+import functools
 import itertools
 import logging
 import time
@@ -11,6 +12,7 @@ from sqlalchemy.orm.exc import NoResultFound
 import trio
 
 from cthaeh._utils import every
+from cthaeh.ema import EMA
 from cthaeh.ir import Block as BlockIR
 from cthaeh.models import (
     Header,
@@ -25,6 +27,11 @@ from cthaeh.models import (
 )
 
 
+@functools.lru_cache(maxsize=2**10 * 2**10)
+def query_topic(topic: Hash32, session: orm.Session) -> Topic:
+    return session.query(Topic).filter(Topic.topic == topic).one()
+
+
 @to_tuple
 def get_or_create_topics(session: orm.Session,
                          topics: Sequence[Hash32],
@@ -34,7 +41,7 @@ def get_or_create_topics(session: orm.Session,
     for topic in topics:
         if topic not in cache:
             try:
-                cache[topic] = session.query(Topic).filter(Topic.topic == topic).one()
+                cache[topic] = query_topic(topic, session)
             except NoResultFound:
                 cache[topic] = Topic(topic=topic)
                 yield cache[topic]
@@ -142,6 +149,8 @@ class BlockLoader(Service):
         last_reported_height = None
         last_reported_at = None
 
+        import_rate_ema = None
+
         while self.manager.is_running:
             async for _ in every(5, initial_delay=2):  # noqa: F841
                 last_loaded_block = self._last_loaded_block
@@ -164,8 +173,13 @@ class BlockLoader(Service):
                 duration = time.monotonic() - last_reported_at
                 blocks_per_second = num_imported / duration
 
+                if import_rate_ema is None:
+                    import_rate_ema = EMA(blocks_per_second, 0.05)
+                else:
+                    import_rate_ema.update(blocks_per_second)
+
                 self.logger.info(
-                    "head=%d (%s) count=%d bps=%s",
+                    "head=%d (%s) count=%d bps=%s bps_ema=%s",
                     last_loaded_height,
                     humanize_hash(last_loaded_block.header.hash),
                     num_imported,
@@ -173,6 +187,11 @@ class BlockLoader(Service):
                         int(blocks_per_second)
                         if blocks_per_second > 2
                         else f"{blocks_per_second:.2f}"
+                    ),
+                    (
+                        int(import_rate_ema.value)
+                        if import_rate_ema.value > 2
+                        else f"{import_rate_ema.value:.2f}"
                     ),
                 )
 

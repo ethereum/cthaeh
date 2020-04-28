@@ -58,8 +58,12 @@ async def do_main(args: argparse.Namespace) -> None:
 
     from web3.auto.ipc import w3
 
-    cthaeh_root = get_xdg_cthaeh_root()
-    ipc_path = cthaeh_root / 'jsonrpc.ipc'
+    if args.disable_jsonrpc:
+        ipc_path = None
+    elif args.ipc_path:
+        ipc_path = args.ipc_path
+    else:
+        ipc_path = get_xdg_cthaeh_root() / 'jsonrpc.ipc'
 
     app = Application(
         w3,

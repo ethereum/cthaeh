@@ -1,4 +1,5 @@
 import argparse
+import pathlib
 
 from cthaeh import __version__
 from cthaeh.commands import (
@@ -22,6 +23,7 @@ cthaeh_parser = parser.add_argument_group('core')
 loading_parser = parser.add_argument_group('loading')
 database_parser = parser.add_argument_group('database')
 logging_parser = parser.add_argument_group('logging')
+jsonrpc_parser = parser.add_argument_group('jsonrpc')
 
 
 #
@@ -98,5 +100,23 @@ loading_parser.add_argument(
     help=(
         "The ending block number to load.  If not present loading follow the "
         "head of the chain once it is reached."
+    )
+)
+
+#
+# JSON-RPC
+#
+jsonrpc_parser.add_argument(
+    '--ipc-path',
+    type=pathlib.Path,
+    help=(
+        "The path for the IPC socket that will be used for the JSON-RPC server"
+    ),
+)
+jsonrpc_parser.add_argument(
+    '--disable-jsonrpc',
+    action="store_true",
+    help=(
+        "Disable the JSON-RPC server"
     )
 )
