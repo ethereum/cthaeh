@@ -38,9 +38,9 @@ class Transaction(NamedTuple):
     to: Optional[Address]
     value: bytes
     data: bytes
-    v: int
-    r: int
-    s: int
+    v: bytes
+    r: bytes
+    s: bytes
     sender: Address
 
 
@@ -50,11 +50,13 @@ class Log(NamedTuple):
     data: bytes
 
     def __repr__(self) -> str:
-        return f"Log(address={self.address!r}, topics={self.topics!r}, data={self.data!r})"  # noqa: E501
+        return (
+            f"Log(address={self.address!r}, topics={self.topics!r}, data={self.data!r})"
+        )  # noqa: E501
 
     def __str__(self) -> str:
         return (
-            f"Log("
+            f"Log("  # type: ignore
             f"address={to_checksum_address(self.address)}, "
             f"topics={tuple(humanize_hash(topic) for topic in self.topics)}, "
             f"data={humanize_hash(self.data)}"
@@ -73,7 +75,7 @@ class Receipt(NamedTuple):
 
     def __str__(self) -> str:
         return (
-            f"Receipt("
+            f"Receipt("  # type: ignore
             f"state_root={humanize_hash(self.state_root)}, "
             f"gas_used={self.gas_used}, "
             f"bloom={humanize_hash(self.bloom)}, "

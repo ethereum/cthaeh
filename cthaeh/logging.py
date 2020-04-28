@@ -4,13 +4,13 @@ import sys
 
 class CthaehFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
-        record.shortname = record.name.split('.')[-1]  # type: ignore
+        record.shortname = record.name.split(".")[-1]  # type: ignore
 
         return super().format(record)
 
 
 LOG_FORMATTER = CthaehFormatter(
-    fmt='%(levelname)8s  %(asctime)s  %(shortname)20s  %(message)s',
+    fmt="%(levelname)8s  %(asctime)s  %(shortname)20s  %(message)s"
 )
 
 
@@ -32,6 +32,6 @@ def setup_stderr_logging(level: int = None) -> logging.StreamHandler:
 
     logger.addHandler(handler_stream)
 
-    logger.debug('Logging initialized for stderr')
+    logger.debug("Logging initialized for stderr")
 
     return handler_stream

@@ -1,6 +1,6 @@
-from cthaeh.filter import filter_logs, FilterParams
-from cthaeh.tools.logs import construct_log, check_filter_results
+from cthaeh.filter import FilterParams, filter_logs
 from cthaeh.tools.factories import AddressFactory, Hash32Factory
+from cthaeh.tools.logs import check_filter_results, construct_log
 
 
 def test_filter_log_empty_params(session):
@@ -128,7 +128,7 @@ def test_filter_log_multiple_topics(session):
 def test_filter_log_single_topic_out_of_position(session):
     topic = Hash32Factory()
     wrong_topic = Hash32Factory()
-    construct_log(session, topics=(wrong_topic, topic,))
+    construct_log(session, topics=(wrong_topic, topic))
 
     params = FilterParams(topics=(topic,))
 
@@ -140,10 +140,10 @@ def test_filter_log_single_topic_out_of_position(session):
 
 def test_filter_log_single_topic_second_position(session):
     topic = Hash32Factory()
-    log = construct_log(session, topics=(Hash32Factory(), topic,))
+    log = construct_log(session, topics=(Hash32Factory(), topic))
     construct_log(session)  # another log that doesn't match
 
-    params = FilterParams(topics=(None, topic,))
+    params = FilterParams(topics=(None, topic))
 
     results = filter_logs(session, params)
     check_filter_results(params, results)

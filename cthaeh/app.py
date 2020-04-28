@@ -16,29 +16,34 @@ from cthaeh.rpc import RPCServer
 
 
 def determine_start_block(session: orm.Session) -> BlockNumber:
-    head = session.query(Header).order_by(
-        Header.block_number.desc()
-    ).filter(
-        Header.is_canonical == True  # noqa: E712
-    ).first()
+    head = (
+        session.query(Header)  # type: ignore
+        .order_by(Header.block_number.desc())
+        .filter(Header.is_canonical == True)  # noqa: E712
+        .first()
+    )
     if head is None:
-        return 0
+        return BlockNumber(0)
     else:
-        return head.block_number + 1
+        return BlockNumber(head.block_number + 1)
 
 
 class Application(Service):
-    logger = logging.getLogger('cthaeh.Cthaeh')
+    logger = logging.getLogger("cthaeh.Cthaeh")
+    rpc_server: Optional[RPCServer] = None
 
-    def __init__(self,
-                 w3: Web3,
-                 session: orm.Session,
-                 start_block: Optional[BlockNumber],
-                 end_block: Optional[BlockNumber],
-                 concurrency: int,
-                 ipc_path: pathlib.Path,
-                 ) -> None:
-        block_send_channel, block_receive_channel = trio.open_memory_channel[BlockIR](128)
+    def __init__(
+        self,
+        w3: Web3,
+        session: orm.Session,
+        start_block: Optional[BlockNumber],
+        end_block: Optional[BlockNumber],
+        concurrency: int,
+        ipc_path: Optional[pathlib.Path],
+    ) -> None:
+        block_send_channel, block_receive_channel = trio.open_memory_channel[BlockIR](
+            128
+        )
         if start_block is None:
             start_block = determine_start_block(session)
 
@@ -50,16 +55,14 @@ class Application(Service):
             concurrency_factor=concurrency,
         )
         self.loader = BlockLoader(
-            session=session,
-            block_receive_channel=block_receive_channel,
+            session=session, block_receive_channel=block_receive_channel
         )
-        self.rpc_server = RPCServer(
-            ipc_path=ipc_path,
-            session=session,
-        )
+        if ipc_path is not None:
+            self.rpc_server = RPCServer(ipc_path=ipc_path, session=session)
 
     async def run(self) -> None:
         self.manager.run_daemon_child_service(self.exfiltrator)
         self.manager.run_daemon_child_service(self.loader)
-        self.manager.run_daemon_child_service(self.rpc_server)
+        if self.rpc_server is not None:
+            self.manager.run_daemon_child_service(self.rpc_server)
         await self.manager.wait_finished()

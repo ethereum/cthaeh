@@ -13,11 +13,17 @@ extras_require = {
         "pytest-xdist==1.31.0",
         "pytest-trio==0.5.2",
         "tox==3.14.6",
-        "web3[tester]",
+        # This doesn't actually result in a correct install of the testing
+        # requirements so instead we supply the exact eth-tester requirement
+        # manually.
+        # "web3[tester]",
+        "eth-tester[py-evm]==v0.2.0-beta.2",
     ],
     'lint': [
-        "flake8==3.4.1",
-        "isort>=4.2.15,<5",
+        'black>=18.6b4,<19',
+        "flake8==3.7.9",
+        "flake8-bugbear==20.1.4",
+        "isort>=4.3.18,<5",
         "mypy==0.770",
         "pydocstyle>=3.0.0,<4",
     ],
@@ -69,6 +75,7 @@ setup(
         "sqlalchemy-stubs==0.3",
         "trio==0.13.0",
         "trio-typing==0.3.0",
+        "web3==5.7.0",
     ],
     python_requires='>=3.6, <4',
     extras_require=extras_require,
@@ -83,9 +90,7 @@ setup(
         'License :: OSI Approved :: MIT License',
         'Natural Language :: English',
         'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.6',
         'Programming Language :: Python :: 3.7',
-        'Programming Language :: Python :: Implementation :: PyPy',
     ],
     entry_points={
         'console_scripts': [

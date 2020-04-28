@@ -6,14 +6,14 @@ import pathlib
 from typing import Any, Iterable, List, Mapping, Optional, Sequence, Tuple, Union, cast
 
 from async_service import Service
-from eth_typing import Address, BlockNumber, Hash32, HexStr
+from eth_typing import Address, BlockNumber, Hash32, HexAddress, HexStr
 from eth_utils import (
     ValidationError,
     decode_hex,
     encode_hex,
     is_address,
-    to_checksum_address,
     to_canonical_address,
+    to_checksum_address,
     to_hex,
     to_int,
     to_tuple,
@@ -25,36 +25,35 @@ import trio
 from cthaeh.filter import FilterParams, filter_logs
 from cthaeh.models import BlockTransaction, Log
 
-
 NEW_LINE = "\n"
 
 
 def strip_non_json_prefix(raw_request: str) -> Tuple[str, str]:
-    if raw_request and raw_request[0] != '{':
-        prefix, bracket, rest = raw_request.partition('{')
+    if raw_request and raw_request[0] != "{":
+        prefix, bracket, rest = raw_request.partition("{")
         return prefix.strip(), bracket + rest
     else:
-        return '', raw_request
+        return "", raw_request
 
 
 async def write_error(socket: trio.socket.SocketType, message: str) -> None:
-    json_error = json.dumps({'error': message})
-    await socket.send(json_error.encode('utf8'))
+    json_error = json.dumps({"error": message})
+    await socket.send(json_error.encode("utf8"))
 
 
 def validate_request(request: Mapping[Any, Any]) -> None:
     try:
-        version = request['jsonrpc']
+        version = request["jsonrpc"]
     except KeyError as err:
         raise ValidationError("Missing 'jsonrpc' key") from err
     else:
-        if version != '2.0':
+        if version != "2.0":
             raise ValidationError(f"Invalid version: {version}")
 
-    if 'method' not in request:
+    if "method" not in request:
         raise ValidationError("Missing 'method' key")
-    if 'params' in request:
-        if not isinstance(request['params'], list):
+    if "params" in request:
+        if not isinstance(request["params"], list):
             raise ValidationError("Missing 'method' key")
 
 
@@ -66,28 +65,25 @@ class RPCRequest(TypedDict):
 
 
 class RawFilterParams(TypedDict, total=False):
-    fromBlock: Optional[BlockNumber]
-    toBlock: Optional[BlockNumber]
-    address: Union[None, Address, List[Address]]
-    topics: List[
-        Union[None, Hash32, List[Hash32]]
-    ]
+    fromBlock: Optional[HexStr]
+    toBlock: Optional[HexStr]
+    address: Union[None, HexAddress, List[HexAddress]]
+    topics: List[Union[None, HexStr, List[HexStr]]]
 
 
 def generate_response(request: RPCRequest, result: Any, error: Optional[str]) -> str:
-    response = {
-        'id': request.get('id', -1),
-        'jsonrpc': request.get('jsonrpc', "2.0"),
-    }
+    response = {"id": request.get("id", -1), "jsonrpc": request.get("jsonrpc", "2.0")}
 
     if result is None and error is None:
         raise ValueError("Must supply either result or error for JSON-RPC response")
     if result is not None and error is not None:
-        raise ValueError("Must not supply both a result and an error for JSON-RPC response")
+        raise ValueError(
+            "Must not supply both a result and an error for JSON-RPC response"
+        )
     elif result is not None:
-        response['result'] = result
+        response["result"] = result
     elif error is not None:
-        response['error'] = str(error)
+        response["error"] = str(error)
     else:
         raise Exception("Unreachable code path")
 
@@ -95,12 +91,9 @@ def generate_response(request: RPCRequest, result: Any, error: Optional[str]) ->
 
 
 class RPCServer(Service):
-    logger = logging.getLogger('cthaeh.rpc.RPCServer')
+    logger = logging.getLogger("cthaeh.rpc.RPCServer")
 
-    def __init__(self,
-                 ipc_path: pathlib.Path,
-                 session: orm.Session,
-                 ) -> None:
+    def __init__(self, ipc_path: pathlib.Path, session: orm.Session) -> None:
         self.ipc_path = ipc_path
         self.session = session
         self._serving = trio.Event()
@@ -116,14 +109,16 @@ class RPCServer(Service):
             self.ipc_path.unlink()
 
     async def execute_rpc(self, request: RPCRequest) -> str:
-        namespaced_method = request['method']
-        params = request.get('params', [])
+        namespaced_method = request["method"]
+        params = request.get("params", [])
 
-        self.logger.debug('RPCServer handling request: %s', namespaced_method)
+        self.logger.debug("RPCServer handling request: %s", namespaced_method)
 
-        namespace, _, method = namespaced_method.partition('_')
-        if namespace != 'eth':
-            return generate_response(request, None, f"Invalid namespace: {namespaced_method}")
+        namespace, _, method = namespaced_method.partition("_")
+        if namespace != "eth":
+            return generate_response(
+                request, None, f"Invalid namespace: {namespaced_method}"
+            )
 
         if method == "getLogs":
             return await self._handle_getLogs(request, *params)
@@ -136,7 +131,9 @@ class RPCServer(Service):
         elif method == "uninstallFilter":
             raise NotImplementedError()
         else:
-            return generate_response(request, None, f"Unknown method: {namespaced_method}")
+            return generate_response(
+                request, None, f"Unknown method: {namespaced_method}"
+            )
 
     async def serve(self, ipc_path: pathlib.Path) -> None:
         self.logger.info("Starting RPC server over IPC socket: %s", ipc_path)
@@ -157,7 +154,7 @@ class RPCServer(Service):
 
             while self.manager.is_running:
                 conn, addr = await sock.accept()
-                self.logger.debug('Server accepted connection: %r', addr)
+                self.logger.debug("Server accepted connection: %r", addr)
                 self.manager.run_task(self._handle_connection, conn)
 
     async def _handle_connection(self, socket: trio.socket.SocketType) -> None:
@@ -171,8 +168,10 @@ class RPCServer(Service):
 
                 bad_prefix, raw_request = strip_non_json_prefix(buffer.getvalue())
                 if bad_prefix:
-                    self.logger.info("Client started request with non json data: %r", bad_prefix)
-                    await write_error(socket, f'Cannot parse json: {bad_prefix}')
+                    self.logger.info(
+                        "Client started request with non json data: %r", bad_prefix
+                    )
+                    await write_error(socket, f"Cannot parse json: {bad_prefix}")
                     continue
 
                 try:
@@ -181,8 +180,7 @@ class RPCServer(Service):
                     # invalid json request, keep reading data until a valid json is formed
                     if raw_request:
                         self.logger.debug(
-                            "Invalid JSON, waiting for rest of message: %r",
-                            raw_request,
+                            "Invalid JSON, waiting for rest of message: %r", raw_request
                         )
                     else:
                         await trio.sleep(0.01)
@@ -201,7 +199,7 @@ class RPCServer(Service):
 
                 if not request:
                     self.logger.debug("Client sent empty request")
-                    await write_error(socket, 'Invalid Request: empty')
+                    await write_error(socket, "Invalid Request: empty")
                     continue
 
                 try:
@@ -227,9 +225,9 @@ class RPCServer(Service):
     #
     # RPC Method Handlers
     #
-    async def _handle_getLogs(self,
-                              request: RPCRequest,
-                              raw_params: RawFilterParams) -> str:
+    async def _handle_getLogs(
+        self, request: RPCRequest, raw_params: RawFilterParams
+    ) -> str:
         params = _rpc_request_to_filter_params(raw_params)
         logs = filter_logs(self.session, params)
         results = tuple(_log_to_rpc_response(log) for log in logs)
@@ -248,74 +246,75 @@ class RPCLog(TypedDict):
 
 
 @to_tuple
-def _normalize_topics(raw_topics: List[Union[None, HexStr, List[HexStr]]],
-                      ) -> Iterable[Union[None, Hash32, Tuple[Hash32, ...]]]:
+def _normalize_topics(
+    raw_topics: List[Union[None, HexStr, List[HexStr]]],
+) -> Iterable[Union[None, Hash32, Tuple[Hash32, ...]]]:
     for topic in raw_topics:
         if topic is None:
             yield None
         elif isinstance(topic, str):
-            yield decode_hex(topic)
+            yield Hash32(decode_hex(topic))
         elif isinstance(topic, Sequence):
-            yield tuple(decode_hex(sub_topic) for sub_topic in topic)
+            yield tuple(Hash32(decode_hex(sub_topic)) for sub_topic in topic)
         else:
             raise TypeError(f"Unsupported topic: {topic!r}")
 
 
 def _rpc_request_to_filter_params(raw_params: RawFilterParams) -> FilterParams:
-    if 'address' not in raw_params:
+    address: Union[None, Address, Tuple[Address, ...]]
+
+    if "address" not in raw_params:
         address = None
-    elif raw_params['address'] is None:
+    elif raw_params["address"] is None:
         address = None
-    elif is_address(raw_params['address']):
-        address = to_canonical_address(raw_params['address'])
-    elif isinstance(raw_params['address'], list):
+    elif is_address(raw_params["address"]):
+        address = to_canonical_address(raw_params["address"])  # type: ignore
+    elif isinstance(raw_params["address"], list):
         address = tuple(
-            to_canonical_address(sub_address)
-            for sub_address in raw_params['address']
+            to_canonical_address(sub_address) for sub_address in raw_params["address"]
         )
     else:
         raise TypeError(f"Unsupported address: {raw_params['address']!r}")
 
-    if 'topics' not in raw_params:
+    topics: Tuple[Union[None, Hash32, Tuple[Hash32, ...]], ...]
+
+    if "topics" not in raw_params:
         topics = ()
-    elif raw_params['topics'] is None:
+    elif raw_params["topics"] is None:
         topics = ()
-    elif isinstance(raw_params['topics'], Sequence):
-        topics = _normalize_topics(raw_params['topics'])
+    elif isinstance(raw_params["topics"], Sequence):
+        topics = _normalize_topics(raw_params["topics"])
     else:
         raise TypeError(f"Unsupported topics: {raw_params['topics']!r}")
 
-    if 'fromBlock' not in raw_params:
+    from_block: Optional[BlockNumber]
+    if "fromBlock" not in raw_params:
         from_block = None
-    elif raw_params['fromBlock'] is None:
+    elif raw_params["fromBlock"] is None:
         from_block = None
-    elif isinstance(raw_params['fromBlock'], str):
-        from_block = to_int(hexstr=raw_params['fromBlock'])
+    elif isinstance(raw_params["fromBlock"], str):
+        from_block = BlockNumber(to_int(hexstr=raw_params["fromBlock"]))
     else:
         raise TypeError(f"Unsupported fromBlock: {raw_params['fromBlock']!r}")
 
-    if 'toBlock' not in raw_params:
+    to_block: Optional[BlockNumber]
+    if "toBlock" not in raw_params:
         to_block = None
-    elif raw_params['toBlock'] is None:
+    elif raw_params["toBlock"] is None:
         to_block = None
-    elif isinstance(raw_params['toBlock'], str):
-        to_block = to_int(hexstr=raw_params['toBlock'])
+    elif isinstance(raw_params["toBlock"], str):
+        to_block = BlockNumber(to_int(hexstr=raw_params["toBlock"]))
     else:
         raise TypeError(f"Unsupported toBlock: {raw_params['toBlock']!r}")
 
-    return FilterParams(
-        from_block,
-        to_block,
-        address,
-        topics,
-    )
+    return FilterParams(from_block, to_block, address, topics)
 
 
 def _log_to_rpc_response(log: Log) -> RPCLog:
     transaction = log.receipt.transaction
     blocktransaction = BlockTransaction.query.filter(
         BlockTransaction.transaction_hash == transaction.hash,
-        BlockTransaction.block_header_hash == transaction.block_header_hash
+        BlockTransaction.block_header_hash == transaction.block_header_hash,
     ).one()
 
     return RPCLog(
@@ -326,5 +325,5 @@ def _log_to_rpc_response(log: Log) -> RPCLog:
         blockNumber=to_hex(transaction.block.header.block_number),
         address=to_checksum_address(log.address),
         data=encode_hex(log.data),
-        topics=[encode_hex(topic.topic) for topic in log.topics],
+        topics=[encode_hex(topic.topic) for topic in log.topics],  # type: ignore
     )

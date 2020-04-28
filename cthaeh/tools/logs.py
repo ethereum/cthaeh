@@ -3,14 +3,15 @@ from typing import Optional, Sequence
 
 from eth_typing import Address, BlockNumber, Hash32
 from eth_utils import is_same_address
+from sqlalchemy import orm
 from sqlalchemy.orm.exc import NoResultFound
 
 from cthaeh.filter import FilterParams
-from cthaeh.session import Session
-from cthaeh.models import Header, Log
 from cthaeh.loader import get_or_create_topics
+from cthaeh.models import Header, Log
 
 from .factories import (
+    AddressFactory,
     BlockFactory,
     BlockTransactionFactory,
     HeaderFactory,
@@ -33,11 +34,11 @@ def check_log_matches_filter(params: FilterParams, log: Log) -> None:
     # Check address matches
     if isinstance(params.address, tuple):
         assert any(
-            is_same_address(log.address, address)
+            is_same_address(Address(log.address), Address(address))
             for address in params.address
         )
     elif params.address is not None:
-        assert is_same_address(log.address, params.address)
+        assert is_same_address(Address(log.address), Address(params.address))
 
     # Check block number in range
     if isinstance(params.from_block, int):
@@ -47,7 +48,9 @@ def check_log_matches_filter(params: FilterParams, log: Log) -> None:
         assert header.block_number <= params.to_block
 
     # Check topics
-    zipped_topics = itertools.zip_longest(params.topics, log.topics, fillvalue=None)
+    zipped_topics = itertools.zip_longest(
+        params.topics, log.topics, fillvalue=None  # type: ignore
+    )
     for expected_topic, actual_topic in zipped_topics:
         if expected_topic is None:
             assert actual_topic is not None
@@ -61,40 +64,40 @@ def check_log_matches_filter(params: FilterParams, log: Log) -> None:
             raise Exception("Invariant")
 
 
-def construct_log(session: Session,
-                  *,
-                  block_number: Optional[BlockNumber] = None,
-                  address: Optional[Address] = None,
-                  topics: Sequence[Hash32] = (),
-                  data: bytes = b'',
-                  is_canonical: bool = True,
-                  ) -> Log:
+def construct_log(
+    session: orm.Session,
+    *,
+    block_number: Optional[BlockNumber] = None,
+    address: Optional[Address] = None,
+    topics: Sequence[Hash32] = (),
+    data: bytes = b"",
+    is_canonical: bool = True,
+) -> Log:
     if block_number is not None:
         try:
-            header = session.query(Header).filter(
-                Header.is_canonical == is_canonical
-            ).filter(
-                Header.block_number == block_number
-            ).one()
-        except NoResultFound:
-            header = HeaderFactory(
-                is_canonical=is_canonical,
-                block_number=block_number,
+            header = (
+                session.query(Header)  # type: ignore
+                .filter(Header.is_canonical.is_(is_canonical))  # type: ignore
+                .filter(Header.block_number == block_number)
+                .one()
             )
+        except NoResultFound:
+            header = HeaderFactory(is_canonical=is_canonical, block_number=block_number)
     else:
         header = HeaderFactory(is_canonical=is_canonical)
+
+    if address is None:
+        address = AddressFactory()
 
     session.add(header)
 
     topic_objs = get_or_create_topics(session, topics)
 
-    session.add_all(topic_objs)
+    session.add_all(topic_objs)  # type: ignore
 
     if is_canonical:
         log = LogFactory(
-            receipt__transaction__block__header=header,
-            address=address,
-            data=data,
+            receipt__transaction__block__header=header, address=address, data=data
         )
         block_transaction = BlockTransactionFactory(
             idx=0,
@@ -103,16 +106,12 @@ def construct_log(session: Session,
         )
         session.add(block_transaction)
     else:
-        log = LogFactory(
-            receipt__transaction__block=None,
-        )
+        log = LogFactory(receipt__transaction__block=None)
         block = BlockFactory(header=header)
         block_transaction = BlockTransactionFactory(
-            idx=0,
-            block=block,
-            transaction=log.receipt.transaction,
+            idx=0, block=block, transaction=log.receipt.transaction
         )
-        session.add_all((block, block_transaction))
+        session.add_all((block, block_transaction))  # type: ignore
 
     log_topics = tuple(
         LogTopicFactory(idx=idx, log=log, topic=topic)
@@ -120,6 +119,6 @@ def construct_log(session: Session,
     )
 
     session.add(log)
-    session.add_all(log_topics)
+    session.add_all(log_topics)  # type: ignore
 
     return log

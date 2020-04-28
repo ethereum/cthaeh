@@ -4,18 +4,14 @@ from typing import Callable, Dict, Iterator, TypeVar
 
 from eth_typing import Address, Hash32
 from eth_utils import int_to_big_endian, to_tuple
-from sqlalchemy.orm.exc import NoResultFound
+from hypothesis import given, settings
+from hypothesis import strategies as st
+import pytest
 from sqlalchemy import orm
-
-from hypothesis import (
-    settings,
-    strategies as st,
-    given,
-)
+from sqlalchemy.orm.exc import NoResultFound
 
 from cthaeh.filter import FilterParams, filter_logs
-from cthaeh.models import Log, Header, Receipt, Topic
-from cthaeh.tools.logs import check_filter_results
+from cthaeh.models import Header, Log, Receipt, Topic
 from cthaeh.tools.factories import (
     AddressFactory,
     BlockFactory,
@@ -28,9 +24,9 @@ from cthaeh.tools.factories import (
     TopicFactory,
     TransactionFactory,
 )
+from cthaeh.tools.logs import check_filter_results
 
-
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 class ThingGenerator(Callable[[], T]):
@@ -48,10 +44,11 @@ class ThingGenerator(Callable[[], T]):
 
 
 @to_tuple
-def build_log_topics(session: orm.Session,
-                     topic_factory: ThingGenerator[Hash32]) -> Iterator[Log]:
-    num_topics = int(random.expovariate(0.1))
-    for idx in range(num_topics):
+def build_log_topics(
+    session: orm.Session, topic_factory: ThingGenerator[Hash32]
+) -> Iterator[Log]:
+    num_topics = random.randint(0, 4)
+    for _ in range(num_topics):
         topic = topic_factory()
 
         try:
@@ -60,18 +57,19 @@ def build_log_topics(session: orm.Session,
             yield TopicFactory(topic=topic)
 
 
-def build_log(session,
-              idx: int,
-              receipt: Receipt,
-              topic_factory: ThingGenerator[Hash32],
-              address_factory: ThingGenerator[Address],
-              ) -> Iterator[Log]:
+def build_log(
+    session,
+    idx: int,
+    receipt: Receipt,
+    topic_factory: ThingGenerator[Hash32],
+    address_factory: ThingGenerator[Address],
+) -> Iterator[Log]:
     topics = build_log_topics(session, topic_factory)
     address = address_factory()
 
     data_size = int(random.expovariate(0.01))
     if data_size == 0:
-        data = b''
+        data = b""
     else:
         data = int_to_big_endian(random.getrandbits(data_size))
     log = LogFactory(idx=idx, receipt=receipt, address=address, data=data)
@@ -84,19 +82,24 @@ def build_log(session,
 
 
 @to_tuple
-def build_block_chain(session: orm.Session,
-                      topic_factory: ThingGenerator[Hash32],
-                      address_factory: ThingGenerator[Address],
-                      num_blocks: int,
-                      ) -> Iterator[Header]:
+def build_block_chain(
+    session: orm.Session,
+    topic_factory: ThingGenerator[Hash32],
+    address_factory: ThingGenerator[Address],
+    num_blocks: int,
+) -> Iterator[Header]:
     for block_number in range(num_blocks):
         if block_number == 0:
             parent_hash = None
         else:
-            parent = session.query(Header).filter(
-                Header.block_number == block_number - 1,
-                Header.is_canonical.is_(True),
-            ).one()
+            parent = (
+                session.query(Header)
+                .filter(
+                    Header.block_number == block_number - 1,
+                    Header.is_canonical.is_(True),
+                )
+                .one()
+            )
             parent_hash = parent.hash
 
         header = HeaderFactory(block_number=block_number, _parent_hash=parent_hash)
@@ -105,23 +108,17 @@ def build_block_chain(session: orm.Session,
         num_transactions = int(random.expovariate(0.1))
 
         transactions = tuple(
-            TransactionFactory(block=block)
-            for _ in range(num_transactions)
+            TransactionFactory(block=block) for _ in range(num_transactions)
         )
         blocktransactions = tuple(
-            BlockTransactionFactory(
-                idx=idx,
-                block=block,
-                transaction=transaction,
-            ) for idx, transaction in enumerate(transactions)
+            BlockTransactionFactory(idx=idx, block=block, transaction=transaction)
+            for idx, transaction in enumerate(transactions)
         )
         receipts = tuple(
-            ReceiptFactory(transaction=transaction)
-            for transaction in transactions
+            ReceiptFactory(transaction=transaction) for transaction in transactions
         )
         num_logs_per_transaction = tuple(
-            int(random.expovariate(0.1))
-            for transaction in transactions
+            int(random.expovariate(0.1)) for transaction in transactions
         )
         log_bundles = tuple(
             build_log(session, idx, receipt, topic_factory, address_factory)
@@ -145,41 +142,36 @@ def build_block_chain(session: orm.Session,
         yield header
 
 
-def build_filter(topic_factory: ThingGenerator[Address],
-                 address_factory: ThingGenerator[Address]) -> FilterParams:
+def build_filter(
+    topic_factory: ThingGenerator[Address], address_factory: ThingGenerator[Address]
+) -> FilterParams:
     num_topics = int(random.expovariate(0.1))
     topics = tuple(topic_factory() for _ in range(num_topics))
     address = address_factory()
 
-    from_block, to_block = sorted((
-        int(random.expovariate(0.05)),
-        int(random.expovariate(0.01)),
-    ))
+    from_block, to_block = sorted(
+        (int(random.expovariate(0.05)), int(random.expovariate(0.01)))
+    )
     if random.randint(0, 20) == 0:
         from_block = None
     if random.randint(0, 2) == 0:
         to_block = None
 
     return FilterParams(
-        from_block=from_block,
-        to_block=to_block,
-        address=address,
-        topics=topics,
+        from_block=from_block, to_block=to_block, address=address, topics=topics
     )
 
 
 MAX_BLOCK_COUNT = 5
 
 
-@settings(deadline=20000, max_examples=20)
+@settings(deadline=20000, max_examples=5)
 @given(
     num_blocks=st.integers(min_value=0, max_value=MAX_BLOCK_COUNT),
     random_module=st.random_module(),
 )
-def test_filters_fuzzy(_Session,
-                       num_blocks,
-                       random_module,
-                       ):
+@pytest.mark.slow
+def test_filters_fuzzy(_Session, num_blocks, random_module):
     topic_factory = ThingGenerator(Hash32Factory)
     address_factory = ThingGenerator(AddressFactory)
 
@@ -188,7 +180,7 @@ def test_filters_fuzzy(_Session,
 
     try:
         build_block_chain(session, topic_factory, address_factory, num_blocks)
-        for _ in range(1000):
+        for _ in range(200):
             params = build_filter(topic_factory, address_factory)
 
             results = filter_logs(session, params)

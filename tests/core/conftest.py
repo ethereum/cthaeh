@@ -1,5 +1,4 @@
 import pytest
-
 from sqlalchemy import create_engine
 
 from cthaeh.models import Base
@@ -9,7 +8,7 @@ from cthaeh.session import Session
 @pytest.fixture(scope="session")
 def engine():
     # PRO-TIP: Set `echo=True` for lots more SQL debug log output.
-    return create_engine('sqlite:///:memory:', echo=False)
+    return create_engine("sqlite:///:memory:", echo=False)
 
 
 @pytest.fixture(scope="session")
