@@ -46,7 +46,7 @@ MEMORY_DB = 'sqlite:///:memory:'
 async def do_main(args: argparse.Namespace) -> None:
     # Establish database connections
     engine = _get_engine(args)
-    Session.configure(bind=engine)
+    Session.configure(bind=engine)  # type: ignore
     session = Session()
 
     # Ensure database schema is present

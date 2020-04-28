@@ -3,7 +3,7 @@ import functools
 import itertools
 import logging
 import time
-from typing import Iterator, Sequence
+from typing import Dict, Iterator, Optional, Sequence
 
 from eth_typing import Hash32
 from eth_utils import to_tuple, humanize_hash
@@ -30,7 +30,7 @@ from cthaeh.models import (
 
 @functools.lru_cache(maxsize=2**10 * 2**10)
 def query_topic(topic: Hash32, session: orm.Session) -> Topic:
-    return session.query(Topic).filter(Topic.topic == topic).one()
+    return session.query(Topic).filter(Topic.topic == topic).one()  # type: ignore
 
 
 @to_tuple
@@ -51,7 +51,7 @@ def get_or_create_topics(session: orm.Session,
 def import_block(session: orm.Session, block_ir: BlockIR) -> None:
     header = Header.from_ir(block_ir.header)
     transactions = tuple(
-        Transaction.from_ir(transaction_ir, block_header_hash=header.hash)
+        Transaction.from_ir(transaction_ir, block_header_hash=Hash32(header.hash))
         for transaction_ir in block_ir.transactions
     )
     uncles = tuple(
@@ -59,13 +59,13 @@ def import_block(session: orm.Session, block_ir: BlockIR) -> None:
         for uncle_ir in block_ir.uncles
     )
     receipts = tuple(
-        Receipt.from_ir(receipt_ir, transaction.hash)
+        Receipt.from_ir(receipt_ir, Hash32(transaction.hash))
         for transaction, receipt_ir
         in zip(transactions, block_ir.receipts)
     )
     log_bundles = tuple(
         tuple(
-            Log.from_ir(log_ir, idx, receipt.transaction_hash)
+            Log.from_ir(log_ir, idx, Hash32(receipt.transaction_hash))
             for idx, log_ir in enumerate(receipt_ir.logs)
         )
         for receipt, receipt_ir in zip(receipts, block_ir.receipts)
@@ -118,6 +118,7 @@ def import_block(session: orm.Session, block_ir: BlockIR) -> None:
 
 class BlockLoader(Service):
     logger = logging.getLogger('cthaeh.import.BlockLoader')
+    _last_loaded_block: Optional[BlockIR] = None
 
     def __init__(self,
                  session: orm.Session,
@@ -126,9 +127,8 @@ class BlockLoader(Service):
         self._block_receive_channel = block_receive_channel
         self._commit_lock = trio.Lock()
         self._session = session
-        self._last_loaded_block = None
 
-    async def run(self):
+    async def run(self) -> None:
         self.logger.info("Started BlockLoader")
 
         self.manager.run_daemon_task(self._commit_on_interval)
@@ -144,7 +144,7 @@ class BlockLoader(Service):
 
                     self.logger.debug("Imported block #%d", block_ir.header.block_number)
             finally:
-                self._session.commit()
+                self._session.commit()  # type: ignore
 
     async def _periodically_report_import(self) -> None:
         last_reported_height = None
@@ -154,12 +154,12 @@ class BlockLoader(Service):
 
         while self.manager.is_running:
             async for _ in every(5, initial_delay=2):  # noqa: F841
-                last_loaded_block = self._last_loaded_block
-                last_loaded_height = last_loaded_block.header.block_number
-
-                if last_loaded_block is None:
+                if self._last_loaded_block is None:
                     self.logger.info("Waiting for first block to load...")
                     continue
+
+                last_loaded_block = self._last_loaded_block
+                last_loaded_height = last_loaded_block.header.block_number
 
                 # If this is our *first* report
                 if last_reported_height is None or last_reported_at is None:
@@ -221,4 +221,4 @@ class BlockLoader(Service):
     async def _commit_on_interval(self) -> None:
         async for _ in every(1):  # noqa: F841
             async with self._commit_lock:
-                self._session.commit()
+                self._session.commit()  # type: ignore

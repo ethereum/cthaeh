@@ -1,10 +1,11 @@
 import logging
-from typing import NamedTuple, Optional, Tuple, Union
+from typing import Iterator, NamedTuple, Optional, Tuple, Union
 
 from eth_typing import Address, BlockNumber, Hash32
 from eth_utils import to_tuple
-from sqlalchemy import and_, orm, or_, Constraint
+from sqlalchemy import and_, orm, or_
 from sqlalchemy.orm import aliased
+from sqlalchemy.sql import ClauseElement
 
 from cthaeh.models import Block, Header, Log, LogTopic, Receipt, Transaction
 
@@ -38,7 +39,7 @@ LOG_TOPIC_ALIASES = (logtopic_0, logtopic_1, logtopic_2, logtopic_3)
 
 
 @to_tuple
-def _construct_filters(params: FilterParams) -> Tuple[Constraint, ...]:
+def _construct_filters(params: FilterParams) -> Iterator[ClauseElement]:
     if isinstance(params.address, tuple):
         # TODO: or
         yield or_(*tuple(
@@ -88,7 +89,7 @@ def _construct_filters(params: FilterParams) -> Tuple[Constraint, ...]:
 def filter_logs(session: orm.Session, params: FilterParams) -> Tuple[Log, ...]:
     orm_filters = _construct_filters(params)
 
-    query = session.query(Log).join(
+    query = session.query(Log).join(  # type: ignore
         Receipt,
         Log.receipt_hash == Receipt.transaction_hash,
     ).join(

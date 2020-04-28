@@ -6,7 +6,7 @@ import pathlib
 from typing import Any, Iterable, List, Mapping, Optional, Sequence, Tuple, Union, cast
 
 from async_service import Service
-from eth_typing import Address, BlockNumber, Hash32, HexStr
+from eth_typing import Address, BlockNumber, Hash32, HexAddress, HexStr
 from eth_utils import (
     ValidationError,
     decode_hex,
@@ -66,11 +66,11 @@ class RPCRequest(TypedDict):
 
 
 class RawFilterParams(TypedDict, total=False):
-    fromBlock: Optional[BlockNumber]
-    toBlock: Optional[BlockNumber]
-    address: Union[None, Address, List[Address]]
+    fromBlock: Optional[HexStr]
+    toBlock: Optional[HexStr]
+    address: Union[None, HexAddress, List[HexAddress]]
     topics: List[
-        Union[None, Hash32, List[Hash32]]
+        Union[None, HexStr, List[HexStr]]
     ]
 
 
@@ -254,20 +254,22 @@ def _normalize_topics(raw_topics: List[Union[None, HexStr, List[HexStr]]],
         if topic is None:
             yield None
         elif isinstance(topic, str):
-            yield decode_hex(topic)
+            yield Hash32(decode_hex(topic))
         elif isinstance(topic, Sequence):
-            yield tuple(decode_hex(sub_topic) for sub_topic in topic)
+            yield tuple(Hash32(decode_hex(sub_topic)) for sub_topic in topic)
         else:
             raise TypeError(f"Unsupported topic: {topic!r}")
 
 
 def _rpc_request_to_filter_params(raw_params: RawFilterParams) -> FilterParams:
+    address: Union[None, Address, Tuple[Address, ...]]
+
     if 'address' not in raw_params:
         address = None
     elif raw_params['address'] is None:
         address = None
     elif is_address(raw_params['address']):
-        address = to_canonical_address(raw_params['address'])
+        address = to_canonical_address(raw_params['address'])  # type: ignore
     elif isinstance(raw_params['address'], list):
         address = tuple(
             to_canonical_address(sub_address)
@@ -275,6 +277,8 @@ def _rpc_request_to_filter_params(raw_params: RawFilterParams) -> FilterParams:
         )
     else:
         raise TypeError(f"Unsupported address: {raw_params['address']!r}")
+
+    topics: Tuple[Union[None, Hash32, Tuple[Hash32, ...], ], ...]
 
     if 'topics' not in raw_params:
         topics = ()
@@ -285,21 +289,23 @@ def _rpc_request_to_filter_params(raw_params: RawFilterParams) -> FilterParams:
     else:
         raise TypeError(f"Unsupported topics: {raw_params['topics']!r}")
 
+    from_block: Optional[BlockNumber]
     if 'fromBlock' not in raw_params:
         from_block = None
     elif raw_params['fromBlock'] is None:
         from_block = None
     elif isinstance(raw_params['fromBlock'], str):
-        from_block = to_int(hexstr=raw_params['fromBlock'])
+        from_block = BlockNumber(to_int(hexstr=raw_params['fromBlock']))
     else:
         raise TypeError(f"Unsupported fromBlock: {raw_params['fromBlock']!r}")
 
+    to_block: Optional[BlockNumber]
     if 'toBlock' not in raw_params:
         to_block = None
     elif raw_params['toBlock'] is None:
         to_block = None
     elif isinstance(raw_params['toBlock'], str):
-        to_block = to_int(hexstr=raw_params['toBlock'])
+        to_block = BlockNumber(to_int(hexstr=raw_params['toBlock']))
     else:
         raise TypeError(f"Unsupported toBlock: {raw_params['toBlock']!r}")
 
@@ -326,5 +332,5 @@ def _log_to_rpc_response(log: Log) -> RPCLog:
         blockNumber=to_hex(transaction.block.header.block_number),
         address=to_checksum_address(log.address),
         data=encode_hex(log.data),
-        topics=[encode_hex(topic.topic) for topic in log.topics],
+        topics=[encode_hex(topic.topic) for topic in log.topics],  # type: ignore
     )

@@ -1,5 +1,7 @@
 import secrets
 
+from eth_typing import Address, Hash32
+
 try:
     import factory
 except ImportError as err:
@@ -24,18 +26,19 @@ from cthaeh.models import (
 from cthaeh.session import Session
 
 
-def AddressFactory():
-    return secrets.token_bytes(20)
+def AddressFactory() -> Address:
+    return Address(secrets.token_bytes(20))
 
 
-def Hash32Factory():
-    return secrets.token_bytes(32)
+def Hash32Factory() -> Hash32:
+    return Hash32(secrets.token_bytes(32))
 
 
-class HeaderFactory(factory.alchemy.SQLAlchemyModelFactory):
+class HeaderFactory(factory.alchemy.SQLAlchemyModelFactory):  # type: ignore
     class Meta:
         model = Header
         sqlalchemy_session = Session
+        rename = {'bloom': '_bloom'}
 
     hash = factory.LazyFunction(Hash32Factory)
 
@@ -50,7 +53,7 @@ class HeaderFactory(factory.alchemy.SQLAlchemyModelFactory):
     transaction_root = factory.LazyFunction(Hash32Factory)
     receipt_root = factory.LazyFunction(Hash32Factory)
 
-    _bloom = b''
+    bloom = b''
 
     difficulty = b'\x01'
     block_number = 0
@@ -62,7 +65,7 @@ class HeaderFactory(factory.alchemy.SQLAlchemyModelFactory):
     nonce = factory.LazyFunction(lambda: secrets.token_bytes(8))
 
 
-class BlockFactory(factory.alchemy.SQLAlchemyModelFactory):
+class BlockFactory(factory.alchemy.SQLAlchemyModelFactory):  # type: ignore
     class Meta:
         model = Block
         sqlalchemy_session = Session
@@ -70,7 +73,7 @@ class BlockFactory(factory.alchemy.SQLAlchemyModelFactory):
     header = factory.SubFactory(HeaderFactory)
 
 
-class BlockUncleFactory(factory.alchemy.SQLAlchemyModelFactory):
+class BlockUncleFactory(factory.alchemy.SQLAlchemyModelFactory):  # type: ignore
     class Meta:
         model = BlockUncle
         sqlalchemy_session = Session
@@ -79,7 +82,7 @@ class BlockUncleFactory(factory.alchemy.SQLAlchemyModelFactory):
     uncle = factory.SubFactory(HeaderFactory)
 
 
-class TransactionFactory(factory.alchemy.SQLAlchemyModelFactory):
+class TransactionFactory(factory.alchemy.SQLAlchemyModelFactory):  # type: ignore
     class Meta:
         model = Transaction
         sqlalchemy_session = Session
@@ -102,7 +105,7 @@ class TransactionFactory(factory.alchemy.SQLAlchemyModelFactory):
     sender = factory.LazyFunction(AddressFactory)
 
 
-class BlockTransactionFactory(factory.alchemy.SQLAlchemyModelFactory):
+class BlockTransactionFactory(factory.alchemy.SQLAlchemyModelFactory):  # type: ignore
     class Meta:
         model = BlockTransaction
         sqlalchemy_session = Session
@@ -111,19 +114,20 @@ class BlockTransactionFactory(factory.alchemy.SQLAlchemyModelFactory):
     transaction = factory.SubFactory(TransactionFactory)
 
 
-class ReceiptFactory(factory.alchemy.SQLAlchemyModelFactory):
+class ReceiptFactory(factory.alchemy.SQLAlchemyModelFactory):  # type: ignore
     class Meta:
         model = Receipt
         sqlalchemy_session = Session
+        rename = {'bloom': '_bloom'}
 
     transaction = factory.SubFactory(TransactionFactory)
 
     state_root = factory.LazyFunction(Hash32Factory)
-    _bloom = b''
+    bloom = b''
     gas_used = 21000
 
 
-class LogFactory(factory.alchemy.SQLAlchemyModelFactory):
+class LogFactory(factory.alchemy.SQLAlchemyModelFactory):  # type: ignore
     class Meta:
         model = Log
         sqlalchemy_session = Session
@@ -135,7 +139,7 @@ class LogFactory(factory.alchemy.SQLAlchemyModelFactory):
     data = b''
 
 
-class TopicFactory(factory.alchemy.SQLAlchemyModelFactory):
+class TopicFactory(factory.alchemy.SQLAlchemyModelFactory):  # type: ignore
     class Meta:
         model = Topic
         sqlalchemy_session = Session
@@ -143,10 +147,12 @@ class TopicFactory(factory.alchemy.SQLAlchemyModelFactory):
     topic = factory.LazyFunction(Hash32Factory)
 
 
-class LogTopicFactory(factory.alchemy.SQLAlchemyModelFactory):
+class LogTopicFactory(factory.alchemy.SQLAlchemyModelFactory):  # type: ignore
     class Meta:
         model = LogTopic
         sqlalchemy_session = Session
+
+    idx = 0
 
     topic = factory.SubFactory(TopicFactory)
     log = factory.SubFactory(LogFactory)

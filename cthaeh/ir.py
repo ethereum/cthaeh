@@ -1,5 +1,5 @@
 import functools
-from typing import Any, NamedTuple, Optional, Tuple
+from typing import Any, NamedTuple, Tuple
 
 from eth_typing import Address, Hash32
 from eth_utils import humanize_hash, to_checksum_address
@@ -35,12 +35,12 @@ class Transaction(NamedTuple):
     nonce: int
     gas_price: int
     gas: int
-    to: Optional[Address]
+    to: Address
     value: bytes
     data: bytes
-    v: int
-    r: int
-    s: int
+    v: bytes
+    r: bytes
+    s: bytes
     sender: Address
 
 
@@ -54,7 +54,7 @@ class Log(NamedTuple):
 
     def __str__(self) -> str:
         return (
-            f"Log("
+            f"Log("  # type: ignore
             f"address={to_checksum_address(self.address)}, "
             f"topics={tuple(humanize_hash(topic) for topic in self.topics)}, "
             f"data={humanize_hash(self.data)}"
@@ -73,7 +73,7 @@ class Receipt(NamedTuple):
 
     def __str__(self) -> str:
         return (
-            f"Receipt("
+            f"Receipt("  # type: ignore
             f"state_root={humanize_hash(self.state_root)}, "
             f"gas_used={self.gas_used}, "
             f"bloom={humanize_hash(self.bloom)}, "

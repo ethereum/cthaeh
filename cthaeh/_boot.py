@@ -8,7 +8,7 @@ if TYPE_CHECKING:
     import signal  # noqa: F401
 
 
-async def _main():
+async def _main() -> None:
     from cthaeh.main import main
     await main()
 

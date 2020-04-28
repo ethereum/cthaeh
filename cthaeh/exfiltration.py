@@ -3,7 +3,7 @@ import collections
 import itertools
 import logging
 import math
-from typing import Iterator, Optional, Sequence
+from typing import Deque, Iterator, Optional, Sequence, cast
 
 from async_service import Service
 from eth_typing import BlockNumber, Hash32
@@ -25,9 +25,9 @@ from cthaeh.ir import Block, Header, Transaction, Receipt, Log
 def iter_block_numbers(start_at: BlockNumber,
                        end_at: Optional[BlockNumber]) -> Iterator[BlockNumber]:
     if end_at is None:
-        return itertools.count(start_at)
+        return (BlockNumber(value) for value in itertools.count(start_at))
     else:
-        return iter(range(start_at, end_at))
+        return (BlockNumber(value) for value in range(start_at, end_at))
 
 
 class Exfiltrator(Service):
@@ -99,7 +99,7 @@ class Exfiltrator(Service):
                 )
                 if block.header.block_number == next_block_number:
                     await self._block_send_channel.send(block)
-                    next_block_number += 1
+                    next_block_number += 1  # type: ignore
                 elif block.header.block_number > next_block_number:
                     bisect.insort_left(buffer, block)
 
@@ -142,14 +142,14 @@ class Exfiltrator(Service):
                 while buffer:
                     if buffer[0].header.block_number == next_block_number:
                         await self._block_send_channel.send(buffer.popleft())
-                        next_block_number += 1
+                        next_block_number += 1  # type: ignore
                         continue
                     break
 
 
 async def retrieve_block(w3: Web3, block_number: int) -> Block:
     block_data = await trio.to_thread.run_sync(w3.eth.getBlock, block_number, True)
-    transactions_data = block_data['transactions']
+    transactions_data = cast(Sequence[TxData], block_data['transactions'])
 
     transaction_hashes = tuple(to_hex(tx_data['hash']) for tx_data in transactions_data)
     receipts_data = await gather(*(
@@ -192,39 +192,39 @@ def extract_uncle(uncle_data: Uncle) -> Header:
     receipt_root: Hash32
 
     if 'receiptsRoot' in uncle_data:
-        receipt_root = to_bytes(hexstr=uncle_data['receiptsRoot'])
+        receipt_root = Hash32(to_bytes(hexstr=uncle_data['receiptsRoot']))
     elif 'receiptRoot' in uncle_data:
-        receipt_root = to_bytes(hexstr=uncle_data['receiptRoot'])
+        receipt_root = Hash32(to_bytes(hexstr=uncle_data['receiptRoot']))  # type: ignore
     elif 'receipts_root' in uncle_data:
-        receipt_root = to_bytes(hexstr=uncle_data['receipts_root'])
+        receipt_root = Hash32(to_bytes(hexstr=uncle_data['receipts_root']))  # type: ignore
     else:
         raise Exception(f"Cannot find receipts_root key: {uncle_data!r}")
 
-    logs_bloom: int
+    logs_bloom: bytes
 
     if 'logsBloom' in uncle_data:
         logs_bloom = to_bytes(hexstr=uncle_data['logsBloom'])
     elif 'logs_bloom' in uncle_data:
-        logs_bloom = to_bytes(hexstr=uncle_data['logs_bloom'])
+        logs_bloom = to_bytes(hexstr=uncle_data['logs_bloom'])  # type: ignore
     else:
         raise Exception(f"Cannot find logs_bloom key: {uncle_data!r}")
 
     return Header(
-        hash=to_bytes(hexstr=uncle_data['hash']),
-        difficulty=to_bytes(hexstr=uncle_data['difficulty']),
+        hash=Hash32(to_bytes(hexstr=uncle_data['hash'])),
+        difficulty=Hash32(to_bytes(hexstr=uncle_data['difficulty'])),
         block_number=to_int(hexstr=uncle_data['number']),
         gas_limit=to_int(hexstr=uncle_data['gasLimit']),
         timestamp=to_int(hexstr=uncle_data['timestamp']),
         coinbase=to_canonical_address(uncle_data['miner']),
-        parent_hash=to_bytes(hexstr=uncle_data['parentHash']),
-        uncles_hash=to_bytes(hexstr=uncle_data['sha3Uncles']),
-        state_root=to_bytes(hexstr=uncle_data['stateRoot']),
-        transaction_root=to_bytes(hexstr=uncle_data['transactionsRoot']),
+        parent_hash=Hash32(to_bytes(hexstr=uncle_data['parentHash'])),
+        uncles_hash=Hash32(to_bytes(hexstr=uncle_data['sha3Uncles'])),
+        state_root=Hash32(to_bytes(hexstr=uncle_data['stateRoot'])),
+        transaction_root=Hash32(to_bytes(hexstr=uncle_data['transactionsRoot'])),
         receipt_root=receipt_root,
         bloom=logs_bloom,
         gas_used=to_int(hexstr=uncle_data['gasUsed']),
         extra_data=to_bytes(hexstr=uncle_data['extraData']),
-        # mix_hash=to_bytes(hexstr=uncle_data['mixHash']),
+        # mix_hash=Hash32(to_bytes(hexstr=uncle_data['mixHash'])),
         nonce=to_bytes(hexstr=uncle_data['nonce']),
         is_canonical=False,
     )
@@ -234,20 +234,20 @@ def extract_header(block_data: BlockData) -> Header:
     receipt_root: Hash32
 
     if 'receiptsRoot' in block_data:
-        receipt_root = Hash32(bytes(block_data['receiptsRoot']))
+        receipt_root = Hash32(bytes(block_data['receiptsRoot']))  # type: ignore
     elif 'receiptRoot' in block_data:
         receipt_root = Hash32(bytes(block_data['receiptRoot']))
     elif 'receipts_root' in block_data:
-        receipt_root = Hash32(to_bytes(hexstr=block_data['receipts_root']))
+        receipt_root = Hash32(to_bytes(hexstr=block_data['receipts_root']))  # type: ignore
     else:
         raise Exception(f"Cannot find receipts_root key: {block_data!r}")
 
-    logs_bloom: int
+    logs_bloom: bytes
 
     if 'logsBloom' in block_data:
         logs_bloom = bytes(block_data['logsBloom'])
     elif 'logs_bloom' in block_data:
-        logs_bloom = bytes(block_data['logs_bloom'])
+        logs_bloom = bytes(block_data['logs_bloom'])  # type: ignore
     else:
         raise Exception(f"Cannot find logs_bloom key: {block_data!r}")
 
@@ -280,7 +280,7 @@ def extract_transaction(transaction_data: TxData) -> Transaction:
         to_address = to_canonical_address(transaction_data['to'])
 
     return Transaction(
-        hash=bytes(transaction_data['hash']),
+        hash=Hash32(bytes(transaction_data['hash'])),
         nonce=transaction_data['nonce'],
         gas_price=transaction_data['gasPrice'],
         gas=transaction_data['gas'],
@@ -312,6 +312,6 @@ def extract_logs(logs_data: Sequence[LogReceipt]) -> Iterator[Log]:
 def extract_log(log_data: LogReceipt) -> Log:
     return Log(
         address=to_canonical_address(log_data['address']),
-        topics=tuple(bytes(topic) for topic in log_data['topics']),
+        topics=tuple(Hash32(bytes(topic)) for topic in log_data['topics']),
         data=to_bytes(hexstr=log_data['data']),
     )

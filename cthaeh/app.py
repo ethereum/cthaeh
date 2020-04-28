@@ -16,15 +16,15 @@ from cthaeh.rpc import RPCServer
 
 
 def determine_start_block(session: orm.Session) -> BlockNumber:
-    head = session.query(Header).order_by(
+    head = session.query(Header).order_by(  # type: ignore
         Header.block_number.desc()
     ).filter(
         Header.is_canonical == True  # noqa: E712
     ).first()
     if head is None:
-        return 0
+        return BlockNumber(0)
     else:
-        return head.block_number + 1
+        return BlockNumber(head.block_number + 1)
 
 
 class Application(Service):
