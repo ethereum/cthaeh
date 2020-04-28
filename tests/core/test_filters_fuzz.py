@@ -6,6 +6,7 @@ from eth_typing import Address, Hash32
 from eth_utils import int_to_big_endian, to_tuple
 from hypothesis import given, settings
 from hypothesis import strategies as st
+import pytest
 from sqlalchemy import orm
 from sqlalchemy.orm.exc import NoResultFound
 
@@ -46,7 +47,7 @@ class ThingGenerator(Callable[[], T]):
 def build_log_topics(
     session: orm.Session, topic_factory: ThingGenerator[Hash32]
 ) -> Iterator[Log]:
-    num_topics = int(random.expovariate(0.1))
+    num_topics = random.randint(0, 4)
     for _ in range(num_topics):
         topic = topic_factory()
 
@@ -169,6 +170,7 @@ MAX_BLOCK_COUNT = 5
     num_blocks=st.integers(min_value=0, max_value=MAX_BLOCK_COUNT),
     random_module=st.random_module(),
 )
+@pytest.mark.slow
 def test_filters_fuzzy(_Session, num_blocks, random_module):
     topic_factory = ThingGenerator(Hash32Factory)
     address_factory = ThingGenerator(AddressFactory)
