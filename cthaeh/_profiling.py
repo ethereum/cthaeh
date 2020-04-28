@@ -1,8 +1,6 @@
-import contextlib
 import cProfile
-from typing import (
-    Iterator,
-)
+import contextlib
+from typing import Iterator
 
 
 @contextlib.contextmanager

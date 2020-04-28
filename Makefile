@@ -28,6 +28,7 @@ lint:
 
 lint-roll:
 	isort --recursive cthaeh tests
+	black cthaeh tests
 	$(MAKE) lint
 
 test:

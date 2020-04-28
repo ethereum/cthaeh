@@ -3,17 +3,16 @@ import logging
 import os
 import sys
 
+from async_service import background_trio_service
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
-from async_service import background_trio_service
 
 from cthaeh.app import Application
 from cthaeh.models import Base
 from cthaeh.session import Session
 from cthaeh.xdg import get_xdg_cthaeh_root
 
-
-logger = logging.getLogger('cthaeh')
+logger = logging.getLogger("cthaeh")
 
 
 def _get_engine(args: argparse.Namespace) -> Engine:
@@ -24,8 +23,8 @@ def _get_engine(args: argparse.Namespace) -> Engine:
     if args.database_url is not None:
         database_url = args.database_url
     else:
-        db_path = xdg_root / 'db.sqlite3'
-        database_url = f'sqlite:///{db_path.resolve()}'
+        db_path = xdg_root / "db.sqlite3"
+        database_url = f"sqlite:///{db_path.resolve()}"
 
     logger.info("Using database: %s", database_url)
 
@@ -40,7 +39,7 @@ async def do_initialize_database(args: argparse.Namespace) -> None:
     sys.exit(0)
 
 
-MEMORY_DB = 'sqlite:///:memory:'
+MEMORY_DB = "sqlite:///:memory:"
 
 
 async def do_main(args: argparse.Namespace) -> None:
@@ -63,7 +62,7 @@ async def do_main(args: argparse.Namespace) -> None:
     elif args.ipc_path:
         ipc_path = args.ipc_path
     else:
-        ipc_path = get_xdg_cthaeh_root() / 'jsonrpc.ipc'
+        ipc_path = get_xdg_cthaeh_root() / "jsonrpc.ipc"
 
     app = Application(
         w3,

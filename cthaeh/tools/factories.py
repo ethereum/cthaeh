@@ -2,28 +2,26 @@ import secrets
 
 from eth_typing import Address, Hash32
 
-try:
-    import factory
-except ImportError as err:
-    raise ImportError(
-        'The `factory-boy` library is required to use the `alexandria.tools.factories` module'
-    ) from err
-
-
 from cthaeh.constants import GENESIS_PARENT_HASH
 from cthaeh.models import (
     Block,
     BlockTransaction,
     BlockUncle,
     Header,
-    Transaction,
-    Receipt,
     Log,
     LogTopic,
+    Receipt,
     Topic,
+    Transaction,
 )
-
 from cthaeh.session import Session
+
+try:
+    import factory
+except ImportError as err:
+    raise ImportError(
+        "The `factory-boy` library is required to use the `alexandria.tools.factories` module"
+    ) from err
 
 
 def AddressFactory() -> Address:
@@ -38,7 +36,7 @@ class HeaderFactory(factory.alchemy.SQLAlchemyModelFactory):  # type: ignore
     class Meta:
         model = Header
         sqlalchemy_session = Session
-        rename = {'bloom': '_bloom'}
+        rename = {"bloom": "_bloom"}
 
     hash = factory.LazyFunction(Hash32Factory)
 
@@ -53,14 +51,14 @@ class HeaderFactory(factory.alchemy.SQLAlchemyModelFactory):  # type: ignore
     transaction_root = factory.LazyFunction(Hash32Factory)
     receipt_root = factory.LazyFunction(Hash32Factory)
 
-    bloom = b''
+    bloom = b""
 
-    difficulty = b'\x01'
+    difficulty = b"\x01"
     block_number = 0
     gas_limit = 3141592
     gas_used = 3141592
     timestamp = 0
-    extra_data = b''
+    extra_data = b""
     # mix_hash = factory.LazyFunction(Hash32Factory)
     nonce = factory.LazyFunction(lambda: secrets.token_bytes(8))
 
@@ -96,11 +94,11 @@ class TransactionFactory(factory.alchemy.SQLAlchemyModelFactory):  # type: ignor
     gas_price = 1
     gas = 21000
     to = factory.LazyFunction(AddressFactory)
-    value = b'\x00'
-    data = b''
-    v = b'\x00' * 32
-    r = b'\x00' * 32
-    s = b'\x00' * 32
+    value = b"\x00"
+    data = b""
+    v = b"\x00" * 32
+    r = b"\x00" * 32
+    s = b"\x00" * 32
 
     sender = factory.LazyFunction(AddressFactory)
 
@@ -118,12 +116,12 @@ class ReceiptFactory(factory.alchemy.SQLAlchemyModelFactory):  # type: ignore
     class Meta:
         model = Receipt
         sqlalchemy_session = Session
-        rename = {'bloom': '_bloom'}
+        rename = {"bloom": "_bloom"}
 
     transaction = factory.SubFactory(TransactionFactory)
 
     state_root = factory.LazyFunction(Hash32Factory)
-    bloom = b''
+    bloom = b""
     gas_used = 21000
 
 
@@ -136,7 +134,7 @@ class LogFactory(factory.alchemy.SQLAlchemyModelFactory):  # type: ignore
     receipt = factory.SubFactory(ReceiptFactory)
 
     address = factory.LazyFunction(AddressFactory)
-    data = b''
+    data = b""
 
 
 class TopicFactory(factory.alchemy.SQLAlchemyModelFactory):  # type: ignore
