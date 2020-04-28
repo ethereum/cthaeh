@@ -47,7 +47,7 @@ def build_log_topics(
     session: orm.Session, topic_factory: ThingGenerator[Hash32]
 ) -> Iterator[Log]:
     num_topics = int(random.expovariate(0.1))
-    for idx in range(num_topics):
+    for _ in range(num_topics):
         topic = topic_factory()
 
         try:

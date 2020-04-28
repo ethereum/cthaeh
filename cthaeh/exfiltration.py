@@ -202,9 +202,13 @@ def extract_uncle(uncle_data: Uncle) -> Header:
     if "receiptsRoot" in uncle_data:
         receipt_root = Hash32(to_bytes(hexstr=uncle_data["receiptsRoot"]))
     elif "receiptRoot" in uncle_data:
-        receipt_root = Hash32(to_bytes(hexstr=uncle_data["receiptRoot"]))
+        receipt_root = Hash32(
+            to_bytes(hexstr=uncle_data["receiptRoot"])  # type: ignore
+        )
     elif "receipts_root" in uncle_data:
-        receipt_root = Hash32(to_bytes(hexstr=uncle_data["receipts_root"]))
+        receipt_root = Hash32(
+            to_bytes(hexstr=uncle_data["receipts_root"])  # type: ignore
+        )
     else:
         raise Exception(f"Cannot find receipts_root key: {uncle_data!r}")
 
@@ -213,7 +217,7 @@ def extract_uncle(uncle_data: Uncle) -> Header:
     if "logsBloom" in uncle_data:
         logs_bloom = to_bytes(hexstr=uncle_data["logsBloom"])
     elif "logs_bloom" in uncle_data:
-        logs_bloom = to_bytes(hexstr=uncle_data["logs_bloom"])
+        logs_bloom = to_bytes(hexstr=uncle_data["logs_bloom"])  # type: ignore
     else:
         raise Exception(f"Cannot find logs_bloom key: {uncle_data!r}")
 
@@ -242,11 +246,13 @@ def extract_header(block_data: BlockData) -> Header:
     receipt_root: Hash32
 
     if "receiptsRoot" in block_data:
-        receipt_root = Hash32(bytes(block_data["receiptsRoot"]))
+        receipt_root = Hash32(bytes(block_data["receiptsRoot"]))  # type: ignore
     elif "receiptRoot" in block_data:
         receipt_root = Hash32(bytes(block_data["receiptRoot"]))
     elif "receipts_root" in block_data:
-        receipt_root = Hash32(to_bytes(hexstr=block_data["receipts_root"]))
+        receipt_root = Hash32(
+            to_bytes(hexstr=block_data["receipts_root"])  # type: ignore
+        )
     else:
         raise Exception(f"Cannot find receipts_root key: {block_data!r}")
 
@@ -255,7 +261,7 @@ def extract_header(block_data: BlockData) -> Header:
     if "logsBloom" in block_data:
         logs_bloom = bytes(block_data["logsBloom"])
     elif "logs_bloom" in block_data:
-        logs_bloom = bytes(block_data["logs_bloom"])
+        logs_bloom = bytes(block_data["logs_bloom"])  # type: ignore
     else:
         raise Exception(f"Cannot find logs_bloom key: {block_data!r}")
 
