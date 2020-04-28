@@ -21,8 +21,6 @@ async def test_exfiltration_of_genesis_block(w3):
     header = block.header
     assert header.block_number == 0
     assert header.parent_hash == GENESIS_PARENT_HASH
-    assert header.bloom == 0
+    assert header.bloom == b''
     assert header.transaction_root == BLANK_ROOT_HASH
     assert header.receipt_root == BLANK_ROOT_HASH
-    # TODO: mismatch?
-    # assert header.uncles_hash == EMPTY_SHA3

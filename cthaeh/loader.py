@@ -15,6 +15,7 @@ from cthaeh._utils import every
 from cthaeh.ema import EMA
 from cthaeh.ir import Block as BlockIR
 from cthaeh.models import (
+    query_row_count,
     Header,
     Block,
     LogTopic,
@@ -170,19 +171,28 @@ class BlockLoader(Service):
                     raise Exception("Invariant")
 
                 num_imported = last_loaded_height - last_reported_height
+                total_rows = query_row_count(
+                    self._session,
+                    last_reported_height,
+                    last_loaded_height,
+                )
                 duration = time.monotonic() - last_reported_at
                 blocks_per_second = num_imported / duration
+                items_per_second = total_rows / duration
 
                 if import_rate_ema is None:
                     import_rate_ema = EMA(blocks_per_second, 0.05)
+                    items_rate_ema = EMA(items_per_second, 0.05)
                 else:
                     import_rate_ema.update(blocks_per_second)
+                    items_rate_ema.update(items_per_second)
 
                 self.logger.info(
-                    "head=%d (%s) count=%d bps=%s bps_ema=%s",
+                    "head=%d (%s) blocks=%d rows=%d bps=%s bps_ema=%s ips=%s, ips_ema=%s",
                     last_loaded_height,
                     humanize_hash(last_loaded_block.header.hash),
                     num_imported,
+                    total_rows,
                     (
                         int(blocks_per_second)
                         if blocks_per_second > 2
@@ -192,6 +202,16 @@ class BlockLoader(Service):
                         int(import_rate_ema.value)
                         if import_rate_ema.value > 2
                         else f"{import_rate_ema.value:.2f}"
+                    ),
+                    (
+                        int(items_per_second)
+                        if items_per_second > 2
+                        else f"{items_per_second:.2f}"
+                    ),
+                    (
+                        int(items_rate_ema.value)
+                        if items_rate_ema.value > 2
+                        else f"{items_rate_ema.value:.2f}"
                     ),
                 )
 

@@ -171,7 +171,7 @@ def build_filter(topic_factory: ThingGenerator[Address],
 MAX_BLOCK_COUNT = 5
 
 
-@settings(deadline=20000, max_examples=20)
+@settings(deadline=20000, max_examples=5)
 @given(
     num_blocks=st.integers(min_value=0, max_value=MAX_BLOCK_COUNT),
     random_module=st.random_module(),
@@ -188,7 +188,7 @@ def test_filters_fuzzy(_Session,
 
     try:
         build_block_chain(session, topic_factory, address_factory, num_blocks)
-        for _ in range(1000):
+        for _ in range(200):
             params = build_filter(topic_factory, address_factory)
 
             results = filter_logs(session, params)

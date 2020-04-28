@@ -13,6 +13,7 @@ from sqlalchemy import (
     UniqueConstraint,
     Index,
 )
+from sqlalchemy import orm
 from sqlalchemy.orm import relationship, backref
 
 from cthaeh.constants import GENESIS_PARENT_HASH
@@ -339,3 +340,79 @@ class Topic(Base):
 
     def __str__(self) -> str:
         return f"Topic[{humanize_hash(self.topic)}]"
+
+
+def query_row_count(session: orm.Session, start_at: int, end_at: int) -> int:
+    num_headers = Header.query.filter(
+        Header.block_number > start_at,
+        Header.block_number <= end_at,
+        Header.is_canonical.is_(True),
+    ).count()
+
+    num_uncles = BlockUncle.query.join(
+        Block,
+        BlockUncle.block_header_hash == Block.header_hash,
+    ).join(
+        Header,
+        Block.header_hash == Header.hash,
+    ).filter(
+        Header.block_number > start_at,
+        Header.block_number <= end_at,
+    ).count()
+
+    num_transactions = Transaction.query.join(
+        Block,
+        Transaction.block_header_hash == Block.header_hash,
+    ).join(
+        Header,
+        Block.header_hash == Header.hash,
+    ).filter(
+        Header.block_number > start_at,
+        Header.block_number <= end_at,
+    ).count()
+
+    num_logs = Log.query.join(
+        Receipt,
+        Log.receipt_hash == Receipt.transaction_hash,
+    ).join(
+        Transaction,
+        Receipt.transaction_hash == Transaction.hash,
+    ).join(
+        Block,
+        Transaction.block_header_hash == Block.header_hash,
+    ).join(
+        Header,
+        Block.header_hash == Header.hash,
+    ).filter(
+        Header.block_number > start_at,
+        Header.block_number <= end_at,
+    ).count()
+
+    num_topics = LogTopic.query.join(
+        Log,
+        LogTopic.log_id == Log.id,
+    ).join(
+        Receipt,
+        Log.receipt_hash == Receipt.transaction_hash,
+    ).join(
+        Transaction,
+        Receipt.transaction_hash == Transaction.hash,
+    ).join(
+        Block,
+        Transaction.block_header_hash == Block.header_hash,
+    ).join(
+        Header,
+        Block.header_hash == Header.hash,
+    ).filter(
+        Header.block_number > start_at,
+        Header.block_number <= end_at,
+    ).count()
+
+    total_item_count = sum((
+        num_headers * 2,  # double to account for blocks
+        num_uncles * 2,  # double to account for join table
+        num_transactions * 3,  # double to account for join table and receipts
+        num_logs * 2,  # double to account for join table
+        num_topics,  # ignore the topics themselves and only count the join rows
+    ))
+    return total_item_count
