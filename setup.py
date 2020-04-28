@@ -13,7 +13,11 @@ extras_require = {
         "pytest-xdist==1.31.0",
         "pytest-trio==0.5.2",
         "tox==3.14.6",
-        "web3[tester]",
+        # This doesn't actually result in a correct install of the testing
+        # requirements so instead we supply the exact eth-tester requirement
+        # manually.
+        # "web3[tester]",
+        "eth-tester[py-evm]==v0.2.0-beta.2",
     ],
     'lint': [
         'black>=18.6b4,<19',
