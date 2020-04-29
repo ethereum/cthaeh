@@ -1,8 +1,7 @@
-import functools
 import itertools
 import logging
 import time
-from typing import Dict, Iterator, Optional, Sequence
+from typing import Iterator, Optional, Sequence
 
 from async_service import Service
 from eth_typing import Hash32
@@ -26,29 +25,23 @@ from cthaeh.models import (
     Transaction,
     query_row_count,
 )
-
-
-@functools.lru_cache(maxsize=2 ** 10 * 2 ** 10)
-def query_topic(topic: Hash32, session: orm.Session) -> Topic:
-    return session.query(Topic).filter(Topic.topic == topic).one()  # type: ignore
+from cthaeh.lru import LRU
 
 
 @to_tuple
 def get_or_create_topics(
-    session: orm.Session, topics: Sequence[Hash32]
+        session: orm.Session, topics: Sequence[Hash32], cache: LRU[Hash32, None],
 ) -> Iterator[Topic]:
-    cache: Dict[Hash32, Topic] = {}
-
     for topic in topics:
         if topic not in cache:
             try:
-                cache[topic] = query_topic(topic, session)
+                session.query(Topic).filter(Topic.topic == topic).one()
             except NoResultFound:
-                cache[topic] = Topic(topic=topic)
-                yield cache[topic]
+                cache[topic] = None
+                yield Topic(topic=topic)
 
 
-def import_block(session: orm.Session, block_ir: BlockIR) -> None:
+def import_block(session: orm.Session, block_ir: BlockIR, cache: LRU[Hash32, None]) -> None:
     header = Header.from_ir(block_ir.header)
     transactions = tuple(
         Transaction.from_ir(transaction_ir, block_header_hash=Hash32(header.hash))
@@ -87,7 +80,7 @@ def import_block(session: orm.Session, block_ir: BlockIR) -> None:
         for log_ir in receipt_ir.logs
         for topic in log_ir.topics
     )
-    topics = get_or_create_topics(session, topic_values)
+    new_topics = get_or_create_topics(session, topic_values, cache)
     logtopics = tuple(
         LogTopic(idx=idx, topic_topic=topic, log=log)
         for bundle, receipt_ir in zip(log_bundles, block_ir.receipts)
@@ -104,7 +97,7 @@ def import_block(session: orm.Session, block_ir: BlockIR) -> None:
             logs,
             block_uncles,
             block_transactions,
-            topics,
+            new_topics,
             logtopics,
         )
     )
@@ -130,6 +123,8 @@ class BlockLoader(Service):
         self.manager.run_daemon_task(self._commit_on_interval)
         self.manager.run_daemon_task(self._periodically_report_import)
 
+        topic_cache: LRU[Hash32, None] = LRU(100000)
+
         async with self._block_receive_channel:
             try:
                 async for block_ir in self._block_receive_channel:
@@ -137,7 +132,7 @@ class BlockLoader(Service):
                         "Importing block #%d", block_ir.header.block_number
                     )
                     async with self._commit_lock:
-                        import_block(self._session, block_ir)
+                        import_block(self._session, block_ir, topic_cache)
                         self._last_loaded_block = block_ir
 
                     self.logger.debug(
