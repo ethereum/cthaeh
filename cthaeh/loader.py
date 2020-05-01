@@ -159,14 +159,19 @@ class HeadLoader(Service):
             )
             orphan_header_chain(self._session, packet.orphans)
 
-        for block_ir in packet.blocks:
+        with self._session.begin_nested():
             import_block(
                 self._session,
-                block_ir,
+                packet.blocks[0],
                 self._topic_cache,
                 is_detatched=is_detatched,
             )
-        self._session.commit()
+            for block_ir in packet.blocks[1:]:
+                import_block(
+                    self._session,
+                    block_ir,
+                    self._topic_cache,
+                )
 
         self.logger.info(
             "New chain HEAD: #%s", packet.blocks[-1].header
@@ -177,10 +182,14 @@ class HeadLoader(Service):
 
         async with self._block_receive_channel:
             first_packet = await self._block_receive_channel.receive()
-            is_detatched = not self._session.query(Header).filter(
-                Header.is_canonical.is_(True),
-                Header.hash == first_packet.blocks[0].header.hash,
-            ).exists()
+            if first_packet.blocks[0].header.block_number > 0:
+                is_detatched = self._session.query(Header).filter(
+                    Header.is_canonical.is_(True),
+                    Header.hash == first_packet.blocks[0].header.parent_hash,
+                ).scalar() is None
+            else:
+                is_detatched = False
+
             await self._handle_head_packet(first_packet, is_detatched=is_detatched)
 
             async for packet in self._block_receive_channel:
@@ -260,6 +269,8 @@ class HistoryFiller(Service):
             except NoGapFound:
                 end_height = self._end_height
 
+            self.logger.info("Gap identified: %d - %d", start_height, end_height)
+
             send_channel, receive_channel = trio.open_memory_channel[BlockIR](128)
 
             exfiltrator = HistoryExfiltrator(
@@ -276,27 +287,37 @@ class HistoryFiller(Service):
             )
 
             self.logger.info("Running history import: #%d -> %d", start_height, end_height)
+
             exfiltrator_manager = self.manager.run_child_service(exfiltrator)
             loader_manager = self.manager.run_child_service(loader)
-            self.logger.info("Finished history import: #%d -> %d", start_height, end_height)
 
             await exfiltrator_manager.wait_finished()
+            self.logger.info("Exfiltrator finished...")
             await loader_manager.wait_finished()
+            self.logger.info("Loader finished...")
+
+            self.logger.info("Finished history import: #%d -> %d", start_height, end_height)
 
             # TODO: connect disconnected head to the new present head
-            detatched_header = self._session.query(Header).filter(
-                Header.is_canonical.is_(True),
-                Header.block_number == end_height,
-            ).one()
-            detatched_header._parent_hash = detatched_header._detatched_parent_hash
-            detatched_header._detatched_parent_hash = None
-            self.logger.info(
-                "Joined detatched header to main chain: #%d (%s)",
-                detatched_header.block_number,
-                humanize_hash(detatched_header.hash),
-            )
-            self._session.add(detatched_header)
-            self._session.commit()
+            try:
+                detatched_header = self._session.query(Header).filter(
+                    Header.is_canonical.is_(True),
+                    Header.block_number == end_height,
+                ).one()
+            except NoResultFound:
+                self.logger.info("Finished full history import")
+                self.manager.cancel()
+                break
+
+            with self._session.begin_nested():
+                detatched_header._parent_hash = detatched_header._detatched_parent_hash
+                detatched_header._detatched_parent_hash = None
+                self.logger.info(
+                    "Joined detatched header to main chain: #%d (%s)",
+                    detatched_header.block_number,
+                    humanize_hash(detatched_header.hash),
+                )
+                self._session.add(detatched_header)
 
 
 class HistoryLoader(Service):
@@ -344,6 +365,8 @@ class HistoryLoader(Service):
                     await self._handle_import_block(block_ir)
             finally:
                 self._session.commit()  # type: ignore
+
+        self.manager.cancel()
 
     async def _periodically_report_import(self) -> None:
         last_reported_height = None

@@ -87,9 +87,9 @@ class Application(Service):
             start_height=self.start_block,
             end_height=head_height if self.end_block is None else self.end_block,
         )
-        self.manager.run_child_service(history_filler)
+        history_filler_manager = self.manager.run_child_service(history_filler)
 
         if self.rpc_server is not None:
             self.manager.run_daemon_child_service(self.rpc_server)
 
-        await self.manager.wait_finished()
+        await history_filler_manager.wait_finished()

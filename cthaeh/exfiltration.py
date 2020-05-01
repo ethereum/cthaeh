@@ -28,12 +28,6 @@ from cthaeh.ema import EMA
 from cthaeh.ir import Block, HeadBlockPacket, Header, Log, Receipt, Transaction
 
 
-def iter_block_numbers(
-    start_at: BlockNumber, end_at: BlockNumber
-) -> Iterator[BlockNumber]:
-    return (BlockNumber(value) for value in range(start_at, end_at))
-
-
 class HistoryExfiltrator(Service):
     _concurrency_factor: int
     w3: Web3
@@ -60,6 +54,7 @@ class HistoryExfiltrator(Service):
     async def run(self) -> None:
         self.logger.info("Started historical sync: #%d -> %d", self.start_at, self.end_at)
         await self._fetch_blocks()
+        self.manager.cancel()
         self.logger.info("Finished historical sync: #%d -> %d", self.start_at, self.end_at)
 
     async def _fetch_blocks(self) -> None:
@@ -69,7 +64,7 @@ class HistoryExfiltrator(Service):
 
         (relay_send_channel, relay_receive_channel) = trio.open_memory_channel[Block](0)
 
-        self.manager.run_daemon_task(self._collate_and_relay, relay_receive_channel)
+        self.manager.run_task(self._collate_and_relay, relay_receive_channel)
 
         async def _fetch(block_number: int) -> None:
             # TODO: handle web3 failures
@@ -82,10 +77,9 @@ class HistoryExfiltrator(Service):
         async with self._block_send_channel:
             async with relay_send_channel:
                 async with trio.open_nursery() as nursery:
-                    while self.manager.is_running:
-                        for block_number in iter_block_numbers(self.start_at, self.end_at):
-                            await semaphor.acquire()
-                            nursery.start_soon(_fetch, block_number)
+                    for block_number in range(self.start_at, self.end_at):
+                        await semaphor.acquire()
+                        nursery.start_soon(_fetch, block_number)
 
     async def _collate_and_relay(self,
                                  receive_channel: trio.abc.ReceiveChannel[Block],
@@ -109,6 +103,7 @@ class HistoryExfiltrator(Service):
                         next_block_number,
                         block.header.block_number,
                     )
+
                     if block.header.block_number == next_block_number:
                         await self._block_send_channel.send(block)
                         next_block_number += 1  # type: ignore
@@ -255,7 +250,6 @@ class HeadExfiltrator(Service):
                 continue
             elif chain_head >= local_head:
                 if chain_head.hash == local_head.hash:
-                    self.logger.info("Poll-waiting...")
                     await poller.wait()
                     continue
 
@@ -287,7 +281,7 @@ class HeadExfiltrator(Service):
                     history.pop()
                 history.extend(new_headers)
 
-                self.logger.info("New chain head: %s", history[-1])
+                self.logger.debug("New chain head: %s", history[-1])
                 await self._block_send_channel.send(HeadBlockPacket(blocks, orphans))
                 # Now update the poller for the total amount of new block height
                 for _ in range(chain_head.block_number - local_head.block_number):

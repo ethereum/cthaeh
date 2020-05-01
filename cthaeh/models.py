@@ -103,6 +103,14 @@ class Header(Base):
     )
 
     @property
+    def is_genesis(self) -> bool:
+        return self.block_number == 0 and self.is_canonical and self.parent_hash == GENESIS_PARENT_HASH  # noqa: E501
+
+    @property
+    def is_detatched(self) -> bool:
+        return self._parent_hash is None and self._detatched_parent_hash is not None
+
+    @property
     def parent_hash(self) -> Optional[Hash32]:
         if self._parent_hash is not None and self._detatched_parent_hash is not None:
             raise TypeError("Invalid: header has two parent hashes")
@@ -309,9 +317,9 @@ class LogTopic(Base):
     topic_topic = Column(
         LargeBinary(32), ForeignKey("topic.topic"), index=True, nullable=False
     )
-    log_idx = Column(Integer, ForeignKey("log.idx"), index=True, nullable=False)
+    log_idx = Column(Integer, nullable=False)
     log_receipt_hash = Column(
-        LargeBinary(32), ForeignKey('log.receipt_hash'), index=True, nullable=False
+        LargeBinary(32), nullable=False
     )
 
     topic = relationship("Topic")
@@ -322,14 +330,22 @@ class Log(Base):
     query = Session.query_property()
 
     __tablename__ = "log"
-    idx = Column(Integer, primary_key=True, index=True)
+    __table_args__ = (
+        UniqueConstraint(
+            "idx", "receipt_hash",
+            name="ix_idx_receipt_hash",
+        ),
+    )
 
+    # composite primary key
+    idx = Column(Integer, primary_key=True, index=True)
     receipt_hash = Column(
         LargeBinary(32),
         ForeignKey("receipt.transaction_hash"),
         primary_key=True,
         index=True,
     )
+
     receipt = relationship("Receipt", back_populates="logs")
 
     address = Column(LargeBinary(20), index=True, nullable=False)
