@@ -4,14 +4,18 @@ import time
 from typing import Iterator, Optional, Sequence
 
 from async_service import Service
-from eth_typing import Hash32
+from eth_typing import BlockNumber, Hash32
 from eth_utils import humanize_hash, to_tuple
 from sqlalchemy import orm
+from sqlalchemy.orm import aliased
 from sqlalchemy.orm.exc import NoResultFound
 import trio
+from web3 import Web3
 
 from cthaeh._utils import every
 from cthaeh.ema import EMA
+from cthaeh.exceptions import NoGapFound
+from cthaeh.exfiltration import HistoryExfiltrator
 from cthaeh.ir import Block as BlockIR, HeadBlockPacket, Header as HeaderIR
 from cthaeh.models import (
     Block,
@@ -44,8 +48,8 @@ def get_or_create_topics(
 def import_block(session: orm.Session,
                  block_ir: BlockIR,
                  cache: LRU[Hash32, None],
-                 detatched: bool = False) -> None:
-    header = Header.from_ir(block_ir.header, detatched=detatched)
+                 is_detatched: bool = False) -> None:
+    header = Header.from_ir(block_ir.header, is_detatched=is_detatched)
     transactions = tuple(
         Transaction.from_ir(transaction_ir, block_header_hash=Hash32(header.hash))
         for transaction_ir in block_ir.transactions
@@ -129,7 +133,7 @@ def orphan_header_chain(session: orm.Session, orphans: Sequence[HeaderIR]) -> No
 
 
 class HeadLoader(Service):
-    logger = logging.getLogger("cthaeh.import.BlockLoader")
+    logger = logging.getLogger("cthaeh.import.HeadLoader")
 
     def __init__(
         self,
@@ -138,47 +142,192 @@ class HeadLoader(Service):
     ) -> None:
         self._block_receive_channel = block_receive_channel
         self._session = session
+        self._topic_cache: LRU[Hash32, None] = LRU(100000)
+
+    async def _handle_head_packet(self,
+                                  packet: HeadBlockPacket,
+                                  is_detatched: bool = False) -> None:
+        self.logger.debug(
+            "Importing new HEAD #%d",
+            packet.blocks[0].header.block_number,
+        )
+        if packet.orphans:
+            self.logger.info(
+                "Reorg orphaned %d blocks starting at %s",
+                len(packet.orphans),
+                packet.orphans[0],
+            )
+            orphan_header_chain(self._session, packet.orphans)
+
+        for block_ir in packet.blocks:
+            import_block(
+                self._session,
+                block_ir,
+                self._topic_cache,
+                is_detatched=is_detatched,
+            )
+        self._session.commit()
+
+        self.logger.info(
+            "New chain HEAD: #%s", packet.blocks[-1].header
+        )
 
     async def run(self) -> None:
         self.logger.info("Started BlockLoader")
 
-        topic_cache: LRU[Hash32, None] = LRU(100000)
-
         async with self._block_receive_channel:
-            async for head_packet in self._block_receive_channel:
-                self.logger.debug(
-                    "Importing new HEAD #%d",
-                    head_packet.blocks[0].header.block_number,
-                )
-                if head_packet.orphans:
-                    self.logger.info(
-                        "Reorg orphaned %d blocks starting at %s",
-                        len(head_packet.orphans),
-                        head_packet.orphans[0],
-                    )
-                    orphan_header_chain(self._session, head_packet.orphans)
+            first_packet = await self._block_receive_channel.receive()
+            is_detatched = not self._session.query(Header).filter(
+                Header.is_canonical.is_(True),
+                Header.hash == first_packet.blocks[0].header.hash,
+            ).exists()
+            await self._handle_head_packet(first_packet, is_detatched=is_detatched)
 
-                for block_ir in head_packet.blocks:
-                    import_block(self._session, block_ir, topic_cache)
-                self._session.commit()
+            async for packet in self._block_receive_channel:
+                await self._handle_head_packet(packet)
 
-                self.logger.debug(
-                    "Imported block #%d", block_ir.header.block_number
+
+def find_first_missing_block_number(session: orm.Session) -> BlockNumber:
+    child_header = aliased(Header)
+    history_head = session.query(Header).outerjoin(
+        child_header,
+        Header.hash == child_header._parent_hash,
+    ).filter(
+        Header.is_canonical.is_(True),
+        child_header._parent_hash.is_(None)
+    ).order_by(
+        Header.block_number,
+    ).first()
+
+    if history_head is None:
+        return BlockNumber(0)
+    else:
+        return BlockNumber(history_head.block_number + 1)
+
+
+def find_first_detatched_block_after(session: orm.Session,
+                                     after_height: BlockNumber,
+                                     ) -> BlockNumber:
+    gap_upper_bound = session.query(Header).filter(
+        Header.is_canonical.is_(True),
+        Header._parent_hash.is_(None),
+        Header._detatched_parent_hash.isnot(None),
+        Header.block_number > after_height,
+    ).order_by(
+        Header.block_number,
+    ).first()
+    if gap_upper_bound is not None:
+        return BlockNumber(gap_upper_bound.block_number)
+    else:
+        raise NoGapFound(
+            f"No detatched blocks found after height #{after_height}"
+        )
+
+
+class HistoryFiller(Service):
+    logger = logging.getLogger("cthaeh.loader.HistoryFiller")
+
+    def __init__(self,
+                 session: orm.Session,
+                 w3: Web3,
+                 concurrency: int,
+                 start_height: Optional[BlockNumber],
+                 end_height: BlockNumber) -> None:
+        self._w3 = w3
+        self._session = session
+        self._start_height = start_height
+        self._end_height = end_height
+        self._concurrency_factor = concurrency
+
+    async def run(self):
+        while True:
+            start_height = find_first_missing_block_number(self._session)
+            if self._start_height is not None and start_height < self._start_height:
+                is_detatched = True
+                start_height = self._start_height
+            else:
+                is_detatched = False
+
+            if start_height >= self._end_height:
+                self.logger.info("No gaps found in header chain")
+                break
+
+            try:
+                end_height = min(
+                    self._end_height,
+                    find_first_detatched_block_after(self._session, start_height),
                 )
+            except NoGapFound:
+                end_height = self._end_height
+
+            send_channel, receive_channel = trio.open_memory_channel[BlockIR](128)
+
+            exfiltrator = HistoryExfiltrator(
+                w3=self._w3,
+                start_at=start_height,
+                end_at=end_height,
+                block_send_channel=send_channel,
+                concurrency_factor=self._concurrency_factor,
+            )
+            loader = HistoryLoader(
+                session=self._session,
+                block_receive_channel=receive_channel,
+                is_detatched=is_detatched,
+            )
+
+            self.logger.info("Running history import: #%d -> %d", start_height, end_height)
+            exfiltrator_manager = self.manager.run_child_service(exfiltrator)
+            loader_manager = self.manager.run_child_service(loader)
+            self.logger.info("Finished history import: #%d -> %d", start_height, end_height)
+
+            await exfiltrator_manager.wait_finished()
+            await loader_manager.wait_finished()
+
+            # TODO: connect disconnected head to the new present head
+            detatched_header = self._session.query(Header).filter(
+                Header.is_canonical.is_(True),
+                Header.block_number == end_height,
+            ).one()
+            detatched_header._parent_hash = detatched_header._detatched_parent_hash
+            detatched_header._detatched_parent_hash = None
+            self.logger.info(
+                "Joined detatched header to main chain: #%d (%s)",
+                detatched_header.block_number,
+                humanize_hash(detatched_header.hash),
+            )
+            self._session.add(detatched_header)
+            self._session.commit()
 
 
 class HistoryLoader(Service):
-    logger = logging.getLogger("cthaeh.import.BlockLoader")
+    logger = logging.getLogger("cthaeh.import.HistoryLoader")
+
     _last_loaded_block: Optional[BlockIR] = None
 
     def __init__(
         self,
         session: orm.Session,
         block_receive_channel: trio.abc.ReceiveChannel[BlockIR],
+        is_detatched: bool,
     ) -> None:
         self._block_receive_channel = block_receive_channel
         self._commit_lock = trio.Lock()
         self._session = session
+        self._is_detatched = is_detatched
+        # TODO: use a shared cache
+        self._topic_cache: LRU[Hash32, None] = LRU(100000)
+
+    async def _handle_import_block(self, block_ir: BlockIR, is_detatched: bool = False) -> None:
+        self.logger.debug(
+            "Importing block #%d", block_ir.header.block_number
+        )
+        async with self._commit_lock:
+            import_block(self._session, block_ir, self._topic_cache, is_detatched=is_detatched)
+            self._last_loaded_block = block_ir
+
+        self.logger.debug(
+            "Imported block #%d", block_ir.header.block_number
+        )
 
     async def run(self) -> None:
         self.logger.info("Started BlockLoader")
@@ -186,21 +335,13 @@ class HistoryLoader(Service):
         self.manager.run_daemon_task(self._commit_on_interval)
         self.manager.run_daemon_task(self._periodically_report_import)
 
-        topic_cache: LRU[Hash32, None] = LRU(100000)
-
         async with self._block_receive_channel:
             try:
-                async for block_ir in self._block_receive_channel:
-                    self.logger.debug(
-                        "Importing block #%d", block_ir.header.block_number
-                    )
-                    async with self._commit_lock:
-                        import_block(self._session, block_ir, topic_cache)
-                        self._last_loaded_block = block_ir
+                first_block_ir = await self._block_receive_channel.receive()
+                await self._handle_import_block(first_block_ir, is_detatched=self._is_detatched)
 
-                    self.logger.debug(
-                        "Imported block #%d", block_ir.header.block_number
-                    )
+                async for block_ir in self._block_receive_channel:
+                    await self._handle_import_block(block_ir)
             finally:
                 self._session.commit()  # type: ignore
 

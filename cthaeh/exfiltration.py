@@ -29,12 +29,9 @@ from cthaeh.ir import Block, HeadBlockPacket, Header, Log, Receipt, Transaction
 
 
 def iter_block_numbers(
-    start_at: BlockNumber, end_at: Optional[BlockNumber]
+    start_at: BlockNumber, end_at: BlockNumber
 ) -> Iterator[BlockNumber]:
-    if end_at is None:
-        return (BlockNumber(value) for value in itertools.count(start_at))
-    else:
-        return (BlockNumber(value) for value in range(start_at, end_at))
+    return (BlockNumber(value) for value in range(start_at, end_at))
 
 
 class HistoryExfiltrator(Service):
@@ -153,7 +150,7 @@ class HistoryExfiltrator(Service):
                         continue
                     else:
                         raise Exception(
-                            "Expected next block number {next_block_number}.  Got: {block}"
+                            f"Expected next block number {next_block_number}.  Got: {block}"
                         )
 
                     while buffer:
@@ -258,7 +255,7 @@ class HeadExfiltrator(Service):
                 continue
             elif chain_head >= local_head:
                 if chain_head.hash == local_head.hash:
-                    self.logger.info("Waiting...")
+                    self.logger.info("Poll-waiting...")
                     await poller.wait()
                     continue
 
@@ -290,7 +287,7 @@ class HeadExfiltrator(Service):
                     history.pop()
                 history.extend(new_headers)
 
-                self.logger.debug("New chain head: %s", history[-1])
+                self.logger.info("New chain head: %s", history[-1])
                 await self._block_send_channel.send(HeadBlockPacket(blocks, orphans))
                 # Now update the poller for the total amount of new block height
                 for _ in range(chain_head.block_number - local_head.block_number):

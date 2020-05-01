@@ -124,13 +124,13 @@ class Header(Base):
             self._parent_hash = value
 
     @classmethod
-    def from_ir(cls, header: HeaderIR, detatched: bool = False) -> "Header":
-        if detatched or header.is_genesis:
+    def from_ir(cls, header: HeaderIR, is_detatched: bool = False) -> "Header":
+        if is_detatched or header.is_genesis:
             parent_hash = None
         else:
             parent_hash = header.parent_hash
 
-        if detatched:
+        if is_detatched:
             detatched_parent_hash = header.parent_hash
         else:
             detatched_parent_hash = None
@@ -440,15 +440,11 @@ def query_row_count(session: orm.Session, start_at: int, end_at: int) -> int:
     )
 
     num_topics = (
-        LogTopic.query.join(
-            Log,
-            LogTopic.log_idx == Log.idx,
-            LogTopic.log_receipt_hash == Log.receipt_hash,
-        )
-        .join(Receipt, Log.receipt_hash == Receipt.transaction_hash)
-        .join(Transaction, Receipt.transaction_hash == Transaction.hash)
-        .join(Block, Transaction.block_header_hash == Block.header_hash)
-        .join(Header, Block.header_hash == Header.hash)
+        LogTopic.query.join(Log, LogTopic.log)
+        .join(Receipt, Log.receipt)
+        .join(Transaction, Receipt.transaction)
+        .join(Block, Transaction.block)
+        .join(Header, Block.header)
         .filter(Header.block_number > start_at, Header.block_number <= end_at)
         .count()
     )
