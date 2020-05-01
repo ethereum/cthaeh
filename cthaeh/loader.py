@@ -12,7 +12,7 @@ import trio
 
 from cthaeh._utils import every
 from cthaeh.ema import EMA
-from cthaeh.ir import Block as BlockIR
+from cthaeh.ir import Block as BlockIR, HeadBlockPacket, Header as HeaderIR
 from cthaeh.models import (
     Block,
     BlockTransaction,
@@ -41,8 +41,11 @@ def get_or_create_topics(
                 yield Topic(topic=topic)
 
 
-def import_block(session: orm.Session, block_ir: BlockIR, cache: LRU[Hash32, None]) -> None:
-    header = Header.from_ir(block_ir.header)
+def import_block(session: orm.Session,
+                 block_ir: BlockIR,
+                 cache: LRU[Hash32, None],
+                 detatched: bool = False) -> None:
+    header = Header.from_ir(block_ir.header, detatched=detatched)
     transactions = tuple(
         Transaction.from_ir(transaction_ir, block_header_hash=Hash32(header.hash))
         for transaction_ir in block_ir.transactions
@@ -82,7 +85,7 @@ def import_block(session: orm.Session, block_ir: BlockIR, cache: LRU[Hash32, Non
     )
     new_topics = get_or_create_topics(session, topic_values, cache)
     logtopics = tuple(
-        LogTopic(idx=idx, topic_topic=topic, log=log)
+        LogTopic(idx=idx, topic_topic=topic, log_receipt_hash=log.receipt_hash, log_idx=log.idx)
         for bundle, receipt_ir in zip(log_bundles, block_ir.receipts)
         for log, log_ir in zip(bundle, receipt_ir.logs)
         for idx, topic in enumerate(log_ir.topics)
@@ -104,7 +107,67 @@ def import_block(session: orm.Session, block_ir: BlockIR, cache: LRU[Hash32, Non
     session.bulk_save_objects(objects_to_save)
 
 
-class BlockLoader(Service):
+def orphan_header_chain(session: orm.Session, orphans: Sequence[HeaderIR]) -> None:
+    for header_ir in orphans:
+        # Set the header to `is_canonical=False`
+        header = session.query(Header).filter(Header.hash == header_ir.hash).one()
+        header.is_canonical = False
+
+        # Unlink each transaction from the block
+        transactions = session.query(Transaction).join(
+            Block,
+            Transaction.block_header_hash == Block.header_hash,
+        ).filter(
+            Block.header_hash == header_ir.hash,
+        ).all()
+
+        for transaction in transactions:
+            transaction.block_header_hash = None
+
+        objects_to_save = (header,) + tuple(transactions)
+        session.bulk_save_objects(objects_to_save)
+
+
+class HeadLoader(Service):
+    logger = logging.getLogger("cthaeh.import.BlockLoader")
+
+    def __init__(
+        self,
+        session: orm.Session,
+        block_receive_channel: trio.abc.ReceiveChannel[HeadBlockPacket],
+    ) -> None:
+        self._block_receive_channel = block_receive_channel
+        self._session = session
+
+    async def run(self) -> None:
+        self.logger.info("Started BlockLoader")
+
+        topic_cache: LRU[Hash32, None] = LRU(100000)
+
+        async with self._block_receive_channel:
+            async for head_packet in self._block_receive_channel:
+                self.logger.debug(
+                    "Importing new HEAD #%d",
+                    head_packet.blocks[0].header.block_number,
+                )
+                if head_packet.orphans:
+                    self.logger.info(
+                        "Reorg orphaned %d blocks starting at %s",
+                        len(head_packet.orphans),
+                        head_packet.orphans[0],
+                    )
+                    orphan_header_chain(self._session, head_packet.orphans)
+
+                for block_ir in head_packet.blocks:
+                    import_block(self._session, block_ir, topic_cache)
+                self._session.commit()
+
+                self.logger.debug(
+                    "Imported block #%d", block_ir.header.block_number
+                )
+
+
+class HistoryLoader(Service):
     logger = logging.getLogger("cthaeh.import.BlockLoader")
     _last_loaded_block: Optional[BlockIR] = None
 

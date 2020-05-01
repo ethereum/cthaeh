@@ -36,13 +36,18 @@ class HeaderFactory(factory.alchemy.SQLAlchemyModelFactory):  # type: ignore
     class Meta:
         model = Header
         sqlalchemy_session = Session
-        rename = {"bloom": "_bloom"}
+        rename = {
+            "bloom": "_bloom",
+            "parent_hash": "_parent_hash",
+            "detatched_parent_hash": "_detatched_parent_hash",
+        }
 
     hash = factory.LazyFunction(Hash32Factory)
 
     is_canonical = True
 
-    _parent_hash = GENESIS_PARENT_HASH
+    parent_hash = GENESIS_PARENT_HASH
+    detatched_parent_hash = None
 
     uncles_hash = factory.LazyFunction(Hash32Factory)
     coinbase = factory.LazyFunction(AddressFactory)
@@ -153,4 +158,3 @@ class LogTopicFactory(factory.alchemy.SQLAlchemyModelFactory):  # type: ignore
     idx = 0
 
     topic = factory.SubFactory(TopicFactory)
-    log = factory.SubFactory(LogFactory)

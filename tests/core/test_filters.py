@@ -13,7 +13,8 @@ def test_filter_log_empty_params(session):
     check_filter_results(params, results)
 
     assert len(results) == 1
-    assert results[0].id == log.id
+    assert results[0].idx == log.idx
+    assert results[0].receipt_hash == log.receipt_hash
 
 
 def test_filter_log_single_address_match(session):
@@ -27,7 +28,8 @@ def test_filter_log_single_address_match(session):
     check_filter_results(params, results)
 
     assert len(results) == 1
-    assert results[0].id == log.id
+    assert results[0].idx == log.idx
+    assert results[0].receipt_hash == log.receipt_hash
     assert results[0].address == address
 
 
@@ -45,7 +47,8 @@ def test_filter_log_multiple_addresses(session):
     check_filter_results(params, results)
 
     assert len(results) == 1
-    assert results[0].id == log.id
+    assert results[0].idx == log.idx
+    assert results[0].receipt_hash == log.receipt_hash
     assert results[0].address == address
 
 
@@ -77,7 +80,8 @@ def test_filter_log_after_from_block_null_to_block(session):
     check_filter_results(params, results)
 
     assert len(results) == 1
-    assert results[0].id == log.id
+    assert results[0].idx == log.idx
+    assert results[0].receipt_hash == log.receipt_hash
 
 
 def test_filter_log_null_from_block_before_to_block(session):
@@ -90,13 +94,15 @@ def test_filter_log_null_from_block_before_to_block(session):
     check_filter_results(params, results)
 
     assert len(results) == 1
-    assert results[0].id == log.id
+    assert results[0].idx == log.idx
+    assert results[0].receipt_hash == log.receipt_hash
 
 
 def test_filter_log_single_topic(session):
     topic = Hash32Factory()
     log = construct_log(session, topics=(topic,))
     construct_log(session)  # another log that doesn't match
+    assert log.topics[0].topic == topic
 
     params = FilterParams(topics=(topic,))
 
@@ -104,7 +110,8 @@ def test_filter_log_single_topic(session):
     check_filter_results(params, results)
 
     assert len(results) == 1
-    assert results[0].id == log.id
+    assert results[0].idx == log.idx
+    assert results[0].receipt_hash == log.receipt_hash
     assert results[0].topics[0].topic == topic
 
 
@@ -120,7 +127,8 @@ def test_filter_log_multiple_topics(session):
     check_filter_results(params, results)
 
     assert len(results) == 1
-    assert results[0].id == log.id
+    assert results[0].idx == log.idx
+    assert results[0].receipt_hash == log.receipt_hash
     assert results[0].topics[0].topic == topic_0
     assert results[0].topics[1].topic == topic_1
 
@@ -149,7 +157,8 @@ def test_filter_log_single_topic_second_position(session):
     check_filter_results(params, results)
 
     assert len(results) == 1
-    assert results[0].id == log.id
+    assert results[0].idx == log.idx
+    assert results[0].receipt_hash == log.receipt_hash
     assert results[0].topics[1].topic == topic
 
 
@@ -166,7 +175,9 @@ def test_filter_params_with_multiple_options_for_topic(session):
     check_filter_results(params, results)
 
     assert len(results) == 2
-    assert results[0].id in {log_a.id, log_b.id}
-    assert results[1].id in {log_a.id, log_b.id}
+    assert results[0].idx in {log_a.idx, log_b.idx}
+    assert results[0].receipt_hash in {log_a.receipt_hash, log_b.receipt_hash}
+    assert results[1].idx in {log_a.idx, log_b.idx}
+    assert results[1].receipt_hash in {log_a.receipt_hash, log_b.receipt_hash}
     assert results[0].topics[0].topic in {topic_a, topic_b}
     assert results[1].topics[0].topic in {topic_a, topic_b}

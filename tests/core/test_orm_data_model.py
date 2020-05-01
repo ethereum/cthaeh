@@ -1,5 +1,5 @@
 from cthaeh.constants import GENESIS_PARENT_HASH
-from cthaeh.models import Block, Header, Log, Receipt, Topic, Transaction
+from cthaeh.models import Block, Header, Receipt, Topic, Transaction
 from cthaeh.tools.factories import (
     BlockFactory,
     BlockTransactionFactory,
@@ -30,41 +30,50 @@ def test_orm_log_without_topics(session):
     with session.begin_nested():
         session.add(log)
 
-    log_from_db = session.query(Log).filter(Log.id == log.id).one()
-
-    assert log_from_db.id == log.id
+    session.refresh(log)
+    assert len(log.topics) == 0
 
 
 def test_orm_log_with_single_topic(session):
     topic = TopicFactory()
     log = LogFactory()
-    log_topic = LogTopicFactory(log=log, topic=topic, idx=0)
+    log_topic = LogTopicFactory(
+        log_idx=log.idx,
+        log_receipt_hash=log.receipt.transaction.hash,
+        topic=topic,
+        idx=0,
+    )
 
     with session.begin_nested():
         session.add_all((log, topic, log_topic))
 
-    log_from_db = session.query(Log).filter(Log.id == log.id).one()
+    session.refresh(log)
 
-    assert log_from_db.id == log.id
-    assert len(log_from_db.topics) == 1
+    assert len(log.topics) == 1
+    assert log.topics[0] == topic
 
 
 def test_orm_log_with_multiple_topics(session):
     topic_a, topic_b, topic_c = TopicFactory.create_batch(3)
     log = LogFactory()
-    log_topic_0 = LogTopicFactory(topic=topic_b, log=log, idx=0)
-    log_topic_1 = LogTopicFactory(topic=topic_a, log=log, idx=1)
-    log_topic_2 = LogTopicFactory(topic=topic_c, log=log, idx=2)
+    log_topic_0 = LogTopicFactory(
+        topic=topic_b, log_idx=log.idx, log_receipt_hash=log.receipt.transaction.hash, idx=0,
+    )
+    log_topic_1 = LogTopicFactory(
+        topic=topic_a, log_idx=log.idx, log_receipt_hash=log.receipt.transaction.hash, idx=1,
+    )
+    log_topic_2 = LogTopicFactory(
+        topic=topic_c, log_idx=log.idx, log_receipt_hash=log.receipt.transaction.hash, idx=2,
+    )
 
     with session.begin_nested():
         session.add_all(
             (log, topic_a, topic_b, topic_c, log_topic_0, log_topic_1, log_topic_2)
         )
 
-    log_from_db = session.query(Log).filter(Log.id == log.id).one()
+    session.refresh(log)
 
-    assert log_from_db.id == log.id
-    assert len(log_from_db.topics) == 3
+    assert len(log.topics) == 3
     assert log.topics[0].topic == topic_b.topic
     assert log.topics[1].topic == topic_a.topic
     assert log.topics[2].topic == topic_c.topic
@@ -94,15 +103,10 @@ def test_orm_receipt_with_single_log(session):
     with session.begin_nested():
         session.add_all((log, receipt))
 
-    receipt_from_db = (
-        session.query(Receipt)
-        .filter(Receipt.transaction_hash == receipt.transaction_hash)
-        .one()
-    )
+    session.refresh(receipt)
 
-    assert receipt_from_db.transaction_hash == receipt.transaction_hash
     assert len(receipt.logs) == 1
-    assert receipt.logs[0].id == log.id
+    assert receipt.logs[0] == log
 
 
 def test_orm_receipt_with_multiple_logs(session):
@@ -114,19 +118,12 @@ def test_orm_receipt_with_multiple_logs(session):
     with session.begin_nested():
         session.add_all((log_b, log_a, log_c, receipt))
 
-    receipt_from_db = (
-        session.query(Receipt)
-        .filter(Receipt.transaction_hash == receipt.transaction_hash)
-        .one()
-    )
+    session.refresh(receipt)
 
-    assert receipt_from_db.transaction_hash == receipt.transaction_hash
-    assert len(receipt_from_db.logs) == 3
-    # TODO: the ordering across the many-to-many relationship isn't working the
-    # way it is supposed to.
-    # assert receipt_from_db.logs[0].id == log_a.id
-    # assert receipt_from_db.logs[1].id == log_b.id
-    # assert receipt_from_db.logs[2].id == log_c.id
+    assert len(receipt.logs) == 3
+    assert receipt.logs[0] == log_a
+    assert receipt.logs[1] == log_b
+    assert receipt.logs[2] == log_c
 
 
 def test_orm_simple_transaction(session):
