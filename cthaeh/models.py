@@ -99,7 +99,7 @@ class Header(Base):
     nonce = Column(LargeBinary(8), nullable=False)
 
     children = relationship(
-        "Header", backref=backref("parent", remote_side=[hash])  # type: ignore
+        "Header", backref=backref("parent", remote_side=[hash]),  # type: ignore
     )
 
     @property
@@ -206,7 +206,7 @@ class Block(Base):
 
     uncles = relationship("Header", secondary="blockuncle", order_by=BlockUncle.idx)
     transactions = relationship(
-        "Transaction", secondary="blocktransaction", order_by=BlockTransaction.idx
+        "Transaction", secondary="blocktransaction", order_by=BlockTransaction.idx,
     )
 
 
@@ -225,7 +225,12 @@ class Transaction(Base):
     blocks = relationship(
         "Block", secondary="blocktransaction", order_by=BlockTransaction.idx
     )
-    receipt = relationship("Receipt", uselist=False, back_populates="transaction")
+    receipt = relationship(
+        "Receipt",
+        uselist=False,
+        back_populates="transaction",
+        cascade="all",
+    )
 
     nonce = Column(BigInteger, nullable=False)
     gas_price = Column(BigInteger, nullable=False)
@@ -272,7 +277,12 @@ class Receipt(Base):
     state_root = Column(LargeBinary(32), nullable=False)
     gas_used = Column(BigInteger, nullable=False)
     _bloom = Column(LargeBinary(1024), nullable=False)
-    logs = relationship("Log", back_populates="receipt", order_by="Log.idx")
+    logs = relationship(
+        "Log",
+        back_populates="receipt",
+        order_by="Log.idx",
+        cascade="all",
+    )
 
     @property
     def bloom(self) -> int:
@@ -310,6 +320,10 @@ class LogTopic(Base):
             ('log.idx', 'log.receipt_hash'),
         ),
     )
+    __mapper_args__ = {
+        'confirm_deleted_rows': False,
+    }
+
     id = Column(Integer, primary_key=True)
 
     idx = Column(Integer, nullable=False)
@@ -323,7 +337,10 @@ class LogTopic(Base):
     )
 
     topic = relationship("Topic")
-    log = relationship("Log", foreign_keys=[log_idx, log_receipt_hash])
+    log = relationship(
+        "Log",
+        foreign_keys=[log_idx, log_receipt_hash],
+    )
 
 
 class Log(Base):
@@ -358,6 +375,7 @@ class Log(Base):
     logtopics = relationship(
         "LogTopic",
         foreign_keys=(LogTopic.log_idx, LogTopic.log_receipt_hash),
+        cascade="all",
     )
     data = Column(LargeBinary, nullable=False)
 

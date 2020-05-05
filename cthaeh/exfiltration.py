@@ -150,7 +150,12 @@ class HistoryExfiltrator(Service):
 
                     while buffer:
                         if buffer[0].header.block_number == next_block_number:
-                            await self._block_send_channel.send(buffer.popleft())
+                            try:
+                                await self._block_send_channel.send(buffer.popleft())
+                            except trio.BrokenResourceError:
+                                self.manager.cancel()
+                                return
+
                             next_block_number += 1  # type: ignore
                             continue
                         break
@@ -274,6 +279,9 @@ class HeadExfiltrator(Service):
                         (retrieve_block, self.w3, header.hash)
                         for header in new_headers
                     ))
+                except trio.MuliError as err:
+                    if all(isinstance(sub_err, TransactionNotFound) for sub_err in err.exceptions):
+                        continue
                 except TransactionNotFound:
                     continue
 

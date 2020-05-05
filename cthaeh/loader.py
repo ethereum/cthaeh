@@ -16,7 +16,12 @@ from cthaeh._utils import every
 from cthaeh.ema import EMA
 from cthaeh.exceptions import NoGapFound
 from cthaeh.exfiltration import HistoryExfiltrator
-from cthaeh.ir import Block as BlockIR, HeadBlockPacket, Header as HeaderIR
+from cthaeh.ir import (
+    Block as BlockIR,
+    HeadBlockPacket,
+    Header as HeaderIR,
+    Transaction as TransactionIR,
+)
 from cthaeh.models import (
     Block,
     BlockTransaction,
@@ -45,20 +50,93 @@ def get_or_create_topics(
                 yield Topic(topic=topic)
 
 
+@to_tuple
+def get_or_create_transactions(
+        session: orm.Session,
+        header_hash: Hash32,
+        transactions: Sequence[TransactionIR],
+        cache: LRU[Hash32, None]
+) -> Iterator[Transaction]:
+    for transaction_ir in transactions:
+        if transaction_ir.hash not in cache:
+            try:
+                transaction = session.query(Transaction).filter(
+                    Transaction.hash == transaction_ir.hash,
+                ).one()
+            except NoResultFound:
+                cache[transaction_ir.hash] = None
+                yield Transaction.from_ir(transaction_ir, block_header_hash=header_hash)
+            else:
+                transaction.block_header_hash = header_hash
+
+
+@to_tuple
+def get_or_create_uncles(
+        session: orm.Session,
+        uncles: Sequence[HeaderIR],
+        cache: LRU[Hash32, None],
+) -> Iterator[Header]:
+    for uncle_ir in uncles:
+        if uncle_ir.hash not in cache:
+            try:
+                session.query(Header).filter(Header.hash == uncle_ir.hash).one()
+            except NoResultFound:
+                cache[uncle_ir.hash] = None
+                yield Header.from_ir(uncle_ir)
+
+
 def import_block(session: orm.Session,
                  block_ir: BlockIR,
                  cache: LRU[Hash32, None],
                  is_detatched: bool = False) -> None:
-    header = Header.from_ir(block_ir.header, is_detatched=is_detatched)
-    transactions = tuple(
-        Transaction.from_ir(transaction_ir, block_header_hash=Hash32(header.hash))
-        for transaction_ir in block_ir.transactions
+    try:
+        header = session.query(Header).filter(Header.hash == block_ir.header.hash).one()
+        header.is_canonical = True
+        if is_detatched:
+            header._parent_hash = None
+            header._detatched_parent_hash = block_ir.header.parent_hash
+        else:
+            header._parent_hash = block_ir.header.parent_hash
+            header._detatched_parent_hash = None
+        block = header.block
+    except NoResultFound:
+        header = Header.from_ir(block_ir.header, is_detatched=is_detatched)
+        block = Block(header_hash=header.hash)
+
+    transaction_hashes = set(
+        transaction_ir.hash for transaction_ir in block_ir.transactions
     )
-    uncles = tuple(Header.from_ir(uncle_ir) for uncle_ir in block_ir.uncles)
+    # Note that `transactions` below is not the full set of transaction
+    # objects, but rather only the new ones that were not already
+    # present in our database.
+    transactions = get_or_create_transactions(
+        session=session,
+        header_hash=block_ir.header.hash,
+        transactions=block_ir.transactions,
+        # TODO: need to use a different cache than the topic cache....
+        cache=cache,
+    )
+    block_transactions = tuple(
+        BlockTransaction(
+            idx=idx,
+            block_header_hash=block.header_hash,
+            transaction_hash=transaction_hash,
+        )
+        for idx, transaction_hash in enumerate(transaction_hashes)
+    )
+
+    # Note: this only contains new uncles.
+    uncles = get_or_create_uncles(session, block_ir.uncles, cache)
+    block_uncles = tuple(
+        BlockUncle(idx=idx, block_header_hash=block.header_hash, uncle_hash=uncle_ir.hash)
+        for idx, uncle_ir in enumerate(block_ir.uncles)
+    )
+
     receipts = tuple(
-        Receipt.from_ir(receipt_ir, Hash32(transaction.hash))
-        for transaction, receipt_ir in zip(transactions, block_ir.receipts)
+        Receipt.from_ir(receipt_ir, Hash32(transaction_hash))
+        for transaction_hash, receipt_ir in zip(transaction_hashes, block_ir.receipts)
     )
+
     log_bundles = tuple(
         tuple(
             Log.from_ir(log_ir, idx, Hash32(receipt.transaction_hash))
@@ -67,19 +145,7 @@ def import_block(session: orm.Session,
         for receipt, receipt_ir in zip(receipts, block_ir.receipts)
     )
     logs = tuple(itertools.chain(*log_bundles))
-    block = Block(header_hash=header.hash)
-    block_uncles = tuple(
-        BlockUncle(idx=idx, block_header_hash=block.header_hash, uncle_hash=uncle.hash)
-        for idx, uncle in enumerate(uncles)
-    )
-    block_transactions = tuple(
-        BlockTransaction(
-            idx=idx,
-            block_header_hash=block.header_hash,
-            transaction_hash=transaction.hash,
-        )
-        for idx, transaction in enumerate(transactions)
-    )
+
     # These need to be lazily created.
     topic_values = tuple(
         topic
@@ -127,6 +193,7 @@ def orphan_header_chain(session: orm.Session, orphans: Sequence[HeaderIR]) -> No
 
         for transaction in transactions:
             transaction.block_header_hash = None
+            session.delete(transaction.receipt)
 
         objects_to_save = (header,) + tuple(transactions)
         session.bulk_save_objects(objects_to_save)
@@ -157,7 +224,8 @@ class HeadLoader(Service):
                 len(packet.orphans),
                 packet.orphans[0],
             )
-            orphan_header_chain(self._session, packet.orphans)
+            with self._session.begin_nested():
+                orphan_header_chain(self._session, packet.orphans)
 
         with self._session.begin_nested():
             import_block(
@@ -166,7 +234,9 @@ class HeadLoader(Service):
                 self._topic_cache,
                 is_detatched=is_detatched,
             )
-            for block_ir in packet.blocks[1:]:
+
+        for block_ir in packet.blocks[1:]:
+            with self._session.begin_nested():
                 import_block(
                     self._session,
                     block_ir,
@@ -295,8 +365,11 @@ class HistoryFiller(Service):
             self.logger.info("Exfiltrator finished...")
             await loader_manager.wait_finished()
             self.logger.info("Loader finished...")
-
-            self.logger.info("Finished history import: #%d -> %d", start_height, end_height)
+            if exfiltrator_manager.did_error or loader_manager.did_error:
+                self.logger.error("Error during import import: #%d -> %d", start_height, end_height)
+                break
+            else:
+                self.logger.info("Finished history import: #%d -> %d", start_height, end_height)
 
             # TODO: connect disconnected head to the new present head
             try:
