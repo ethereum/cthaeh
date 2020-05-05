@@ -20,8 +20,8 @@ from eth_typing import BlockIdentifier, BlockNumber, Hash32
 from eth_utils import to_bytes, to_canonical_address, to_hex, to_int, to_tuple
 import trio
 from web3 import Web3
-from web3.types import BlockData, LogReceipt, TxData, TxReceipt, Uncle
 from web3.exceptions import TransactionNotFound
+from web3.types import BlockData, LogReceipt, TxData, TxReceipt, Uncle
 
 from cthaeh._utils import gather
 from cthaeh.ema import EMA
@@ -52,10 +52,14 @@ class HistoryExfiltrator(Service):
         self._concurrency_factor = concurrency_factor
 
     async def run(self) -> None:
-        self.logger.info("Started historical sync: #%d -> %d", self.start_at, self.end_at)
+        self.logger.info(
+            "Started historical sync: #%d -> %d", self.start_at, self.end_at
+        )
         await self._fetch_blocks()
         self.manager.cancel()
-        self.logger.info("Finished historical sync: #%d -> %d", self.start_at, self.end_at)
+        self.logger.info(
+            "Finished historical sync: #%d -> %d", self.start_at, self.end_at
+        )
 
     async def _fetch_blocks(self) -> None:
         semaphor = trio.Semaphore(
@@ -66,7 +70,7 @@ class HistoryExfiltrator(Service):
 
         self.manager.run_task(self._collate_and_relay, relay_receive_channel)
 
-        async def _fetch(block_number: int) -> None:
+        async def _fetch(block_number: BlockNumber) -> None:
             # TODO: handle web3 failures
             self.logger.debug("Retrieving block #%d", block_number)
             block = await retrieve_block(self.w3, block_number)
@@ -81,9 +85,9 @@ class HistoryExfiltrator(Service):
                         await semaphor.acquire()
                         nursery.start_soon(_fetch, block_number)
 
-    async def _collate_and_relay(self,
-                                 receive_channel: trio.abc.ReceiveChannel[Block],
-                                 ) -> None:
+    async def _collate_and_relay(
+        self, receive_channel: trio.abc.ReceiveChannel[Block]
+    ) -> None:
         buffer: Deque[Block] = collections.deque()
         concurrency_factor = self._concurrency_factor
 
@@ -222,11 +226,13 @@ class HeadExfiltrator(Service):
 
     async def _fetch_blocks(self) -> None:
         history: Deque[Header] = collections.deque(maxlen=MAX_REORG_DEPTH)
-        history.extend(await retrieve_ancestry(
-            self.w3,
-            self.start_at,
-            until_height_lt(max(0, self.start_at - 128)),
-        ))
+        history.extend(
+            await retrieve_ancestry(
+                self.w3,
+                self.start_at,
+                until_height_lt(BlockNumber(max(0, self.start_at - 128))),
+            )
+        )
 
         first_block = await retrieve_block(self.w3, history[-1].hash)
         self.logger.info("Head exfiltration started: %s", first_block)
@@ -243,7 +249,7 @@ class HeadExfiltrator(Service):
 
         while self.manager.is_running:
             local_head = history[-1]
-            chain_head = await retrieve_header(self.w3, 'latest')
+            chain_head = await retrieve_header(self.w3, "latest")  # type: ignore
 
             if chain_head < local_head:
                 self.logger.warning(
@@ -253,7 +259,7 @@ class HeadExfiltrator(Service):
                 )
                 await trio.sleep(15)
                 continue
-            elif chain_head >= local_head:
+            elif chain_head >= local_head:  # type: ignore
                 if chain_head.hash == local_head.hash:
                     await poller.wait()
                     continue
@@ -266,7 +272,9 @@ class HeadExfiltrator(Service):
                     until_parent_hash_known(history_hashes, history[0].block_number),
                 )
                 if not new_headers:
-                    raise Exception(f"New Headers empty? %s / %s", new_headers, chain_head)
+                    raise Exception(
+                        f"New Headers empty? %s / %s", new_headers, chain_head
+                    )
 
                 insertion_index = bisect.bisect_left(history, new_headers[0])
 
@@ -275,12 +283,17 @@ class HeadExfiltrator(Service):
                     self.logger.info("Reorg detected: %s", len(orphans))
 
                 try:
-                    blocks = await gather(*(
-                        (retrieve_block, self.w3, header.hash)
-                        for header in new_headers
-                    ))
-                except trio.MuliError as err:
-                    if all(isinstance(sub_err, TransactionNotFound) for sub_err in err.exceptions):
+                    blocks = await gather(
+                        *(
+                            (retrieve_block, self.w3, header.hash)
+                            for header in new_headers
+                        )
+                    )
+                except trio.MultiError as err:
+                    if all(
+                        isinstance(sub_err, TransactionNotFound)
+                        for sub_err in err.exceptions
+                    ):
                         continue
                 except TransactionNotFound:
                     continue
@@ -295,31 +308,36 @@ class HeadExfiltrator(Service):
                 for _ in range(chain_head.block_number - local_head.block_number):
                     poller.update()
             else:
-                raise Exception(f"Unreachable code path: chain={chain_head}  local={local_head}")
+                raise Exception(
+                    f"Unreachable code path: chain={chain_head}  local={local_head}"
+                )
 
 
 def until_height_lt(height: BlockNumber) -> Callable[[Header], bool]:
     def _condition__fn(header: Header) -> bool:
         return header.block_number < height
+
     return _condition__fn
 
 
-def until_parent_hash_known(known_parent_hashes: Collection[Hash32],
-                            min_height: int,
-                            ) -> Callable[[Header], bool]:
+def until_parent_hash_known(
+    known_parent_hashes: Collection[Hash32], min_height: int
+) -> Callable[[Header], bool]:
     def _condition__fn(header: Header) -> bool:
         if header.block_number < min_height:
             raise Exception("Reached maximum depth")
 
         return header.hash in known_parent_hashes
+
     return _condition__fn
 
 
-async def retrieve_ancestry(w3: Web3,
-                            from_height: BlockNumber,
-                            until_condition_fn: Callable[[Header], bool],
-                            ) -> Tuple[Header, ...]:
-    tip = await retrieve_header(w3, from_height)
+async def retrieve_ancestry(
+    w3: Web3,
+    from_identifier: BlockIdentifier,
+    until_condition_fn: Callable[[Header], bool],
+) -> Tuple[Header, ...]:
+    tip = await retrieve_header(w3, from_identifier)
     history: List[Header] = [tip]
     while True:
         header = await retrieve_header(w3, history[-1].parent_hash)
@@ -331,7 +349,7 @@ async def retrieve_ancestry(w3: Web3,
 
 
 async def retrieve_block_number(w3: Web3) -> BlockNumber:
-    def _get_block_number():
+    def _get_block_number() -> BlockNumber:
         return w3.eth.blockNumber
 
     return await trio.to_thread.run_sync(_get_block_number)
@@ -343,7 +361,9 @@ async def retrieve_header(w3: Web3, block_number_or_hash: BlockIdentifier) -> He
 
 
 async def retrieve_block(w3: Web3, block_number_or_hash: BlockIdentifier) -> Block:
-    block_data = await trio.to_thread.run_sync(w3.eth.getBlock, block_number_or_hash, True)
+    block_data = await trio.to_thread.run_sync(
+        w3.eth.getBlock, block_number_or_hash, True
+    )
     transactions_data = cast(Sequence[TxData], block_data["transactions"])
 
     transaction_hashes = tuple(to_hex(tx_data["hash"]) for tx_data in transactions_data)
@@ -506,7 +526,7 @@ def extract_receipt(receipt_data: TxReceipt) -> Receipt:
     try:
         state_root = Hash32(to_bytes(hexstr=receipt_data["root"]))
     except KeyError:
-        state_root = Hash32(receipt_data['status'].to_bytes(32, 'big'))
+        state_root = Hash32(receipt_data["status"].to_bytes(32, "big"))
 
     return Receipt(
         state_root=state_root,

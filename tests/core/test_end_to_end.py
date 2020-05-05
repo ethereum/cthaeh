@@ -1,13 +1,12 @@
 from async_service import background_trio_service
 import pytest
 import trio
-from web3 import Web3, EthereumTesterProvider
+from web3 import EthereumTesterProvider, Web3
 
 from cthaeh.app import Application
 from cthaeh.exfiltration import retrieve_block
 from cthaeh.loader import import_block
 from cthaeh.models import Header
-
 
 CHAIN_HEIGHT = 10
 
@@ -26,10 +25,11 @@ async def _load_block(session, w3, block_number, is_detatched=False) -> None:
 
 def _verify_integrity(session, from_block, to_block, is_detatched=False) -> None:
     for block_number in range(from_block, to_block):
-        header = session.query(Header).filter(
-            Header.is_canonical.is_(True),
-            Header.block_number == block_number,
-        ).one()
+        header = (
+            session.query(Header)
+            .filter(Header.is_canonical.is_(True), Header.block_number == block_number)
+            .one()
+        )
 
         if block_number == from_block:
             if header.is_genesis:
@@ -46,10 +46,11 @@ def _verify_empty(session, from_block, to_block) -> None:
     if to_block is not None:
         range_constraints.append(Header.block_number < to_block)
 
-    assert session.query(Header).filter(
-        Header.is_canonical.is_(True),
-        *range_constraints
-    ).count() == 0
+    assert (
+        session.query(Header)
+        .filter(Header.is_canonical.is_(True), *range_constraints)
+        .count()
+    ) == 0
 
 
 @pytest.mark.trio

@@ -11,22 +11,23 @@ from web3 import Web3
 
 from cthaeh.exfiltration import HeadExfiltrator, retrieve_block_number
 from cthaeh.ir import Block as BlockIR
-from cthaeh.loader import HistoryFiller, HeadLoader
+from cthaeh.loader import HeadLoader, HistoryFiller
 from cthaeh.models import Header
 from cthaeh.rpc import RPCServer
 
 
 def determine_start_block(session: orm.Session) -> BlockNumber:
     child_header = aliased(Header)
-    history_head = session.query(Header).outerjoin(
-        child_header,
-        Header.hash == child_header._parent_hash,
-    ).filter(
-        Header.is_canonical.is_(True),
-        child_header._parent_hash.is_(None)
-    ).order_by(
-        Header.block_number,
-    ).first()
+    history_head = (
+        session.query(Header)  # type: ignore
+        .outerjoin(child_header, Header.hash == child_header._parent_hash)
+        .filter(
+            Header.is_canonical.is_(True),  # type: ignore
+            child_header._parent_hash.is_(None),
+        )
+        .order_by(Header.block_number)
+        .first()
+    )
 
     if history_head is None:
         return BlockNumber(0)
@@ -71,11 +72,12 @@ class Application(Service):
                 w3=self.w3,
                 start_at=head_height,
                 end_at=self.end_block,
-                block_send_channel=head_send_channel.clone(),
+                block_send_channel=head_send_channel,  # type: ignore
                 concurrency_factor=self.concurrency,
             )
             head_loader = HeadLoader(
-                session=self._session, block_receive_channel=head_receive_channel
+                session=self._session,
+                block_receive_channel=head_receive_channel,  # type: ignore
             )
             self.manager.run_daemon_child_service(head_exfiltrator)
             self.manager.run_daemon_child_service(head_loader)

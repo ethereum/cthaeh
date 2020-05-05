@@ -17,13 +17,13 @@ BlockIdentifier = BlockNumber
 #     Literal['earliest'],
 #     BlockNumber,
 # ]
-Topic = Union[None, Hash32, Tuple[Hash32, ...]]
-Topics = Union[
+_Topic = Union[None, Hash32, Tuple[Hash32, ...]]
+FilterTopics = Union[
     Tuple[()],
-    Tuple[Topic],
-    Tuple[Topic, Topic],
-    Tuple[Topic, Topic, Topic],
-    Tuple[Topic, Topic, Topic, Topic],
+    Tuple[_Topic],
+    Tuple[_Topic, _Topic],
+    Tuple[_Topic, _Topic, _Topic],
+    Tuple[_Topic, _Topic, _Topic, _Topic],
 ]
 
 logger = logging.getLogger("cthaeh.filter")
@@ -33,7 +33,7 @@ class FilterParams(NamedTuple):
     from_block: Optional[BlockIdentifier] = None
     to_block: Optional[BlockIdentifier] = None
     address: Union[None, Address, Tuple[Address, ...]] = None
-    topics: Topics = ()
+    topics: FilterTopics = ()
 
 
 logtopic_0 = aliased(LogTopic)

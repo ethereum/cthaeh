@@ -16,12 +16,11 @@ from cthaeh._utils import every
 from cthaeh.ema import EMA
 from cthaeh.exceptions import NoGapFound
 from cthaeh.exfiltration import HistoryExfiltrator
-from cthaeh.ir import (
-    Block as BlockIR,
-    HeadBlockPacket,
-    Header as HeaderIR,
-    Transaction as TransactionIR,
-)
+from cthaeh.ir import Block as BlockIR
+from cthaeh.ir import HeadBlockPacket
+from cthaeh.ir import Header as HeaderIR
+from cthaeh.ir import Transaction as TransactionIR
+from cthaeh.lru import LRU
 from cthaeh.models import (
     Block,
     BlockTransaction,
@@ -34,17 +33,16 @@ from cthaeh.models import (
     Transaction,
     query_row_count,
 )
-from cthaeh.lru import LRU
 
 
 @to_tuple
 def get_or_create_topics(
-        session: orm.Session, topics: Sequence[Hash32], cache: LRU[Hash32, None],
+    session: orm.Session, topics: Sequence[Hash32], cache: LRU[Hash32, None]
 ) -> Iterator[Topic]:
     for topic in topics:
         if topic not in cache:
             try:
-                session.query(Topic).filter(Topic.topic == topic).one()
+                session.query(Topic).filter(Topic.topic == topic).one()  # type: ignore
             except NoResultFound:
                 cache[topic] = None
                 yield Topic(topic=topic)
@@ -52,17 +50,19 @@ def get_or_create_topics(
 
 @to_tuple
 def get_or_create_transactions(
-        session: orm.Session,
-        header_hash: Hash32,
-        transactions: Sequence[TransactionIR],
-        cache: LRU[Hash32, None]
+    session: orm.Session,
+    header_hash: Hash32,
+    transactions: Sequence[TransactionIR],
+    cache: LRU[Hash32, None],
 ) -> Iterator[Transaction]:
     for transaction_ir in transactions:
         if transaction_ir.hash not in cache:
             try:
-                transaction = session.query(Transaction).filter(
-                    Transaction.hash == transaction_ir.hash,
-                ).one()
+                transaction = (
+                    session.query(Transaction)  # type: ignore
+                    .filter(Transaction.hash == transaction_ir.hash)
+                    .one()
+                )
             except NoResultFound:
                 cache[transaction_ir.hash] = None
                 yield Transaction.from_ir(transaction_ir, block_header_hash=header_hash)
@@ -72,26 +72,43 @@ def get_or_create_transactions(
 
 @to_tuple
 def get_or_create_uncles(
-        session: orm.Session,
-        uncles: Sequence[HeaderIR],
-        cache: LRU[Hash32, None],
+    session: orm.Session, uncles: Sequence[HeaderIR], cache: LRU[Hash32, None]
 ) -> Iterator[Header]:
     for uncle_ir in uncles:
         if uncle_ir.hash not in cache:
             try:
-                session.query(Header).filter(Header.hash == uncle_ir.hash).one()
+                session.query(Header).filter(  # type: ignore
+                    Header.hash == uncle_ir.hash
+                ).one()
             except NoResultFound:
                 cache[uncle_ir.hash] = None
                 yield Header.from_ir(uncle_ir)
 
 
-def import_block(session: orm.Session,
-                 block_ir: BlockIR,
-                 cache: LRU[Hash32, None],
-                 is_detatched: bool = False) -> None:
+def import_block(
+    session: orm.Session,
+    block_ir: BlockIR,
+    cache: LRU[Hash32, None],
+    is_detatched: bool = False,
+) -> None:
+    # TODO: Things that need to be cleaned up here.
+    # 1. get_or_create_uncles and get_or_create_transactions end up doing one
+    # query per object.  They can be optimized to only perform a single query
+    # no matter how many objects are present.
+    #
+    # 2. the cache is being re-used across transactions/topics/uncles.  we
+    # should be using a separate cache for each.
     try:
-        header = session.query(Header).filter(Header.hash == block_ir.header.hash).one()
-        header.is_canonical = True
+        header = (
+            session.query(Header)  # type: ignore
+            .filter(Header.hash == block_ir.header.hash)
+            .one()
+        )
+    except NoResultFound:
+        header = Header.from_ir(block_ir.header, is_detatched=is_detatched)
+        block = Block(header_hash=header.hash)
+    else:
+        header.is_canonical = block_ir.header.is_canonical
         if is_detatched:
             header._parent_hash = None
             header._detatched_parent_hash = block_ir.header.parent_hash
@@ -99,9 +116,6 @@ def import_block(session: orm.Session,
             header._parent_hash = block_ir.header.parent_hash
             header._detatched_parent_hash = None
         block = header.block
-    except NoResultFound:
-        header = Header.from_ir(block_ir.header, is_detatched=is_detatched)
-        block = Block(header_hash=header.hash)
 
     transaction_hashes = set(
         transaction_ir.hash for transaction_ir in block_ir.transactions
@@ -128,7 +142,9 @@ def import_block(session: orm.Session,
     # Note: this only contains new uncles.
     uncles = get_or_create_uncles(session, block_ir.uncles, cache)
     block_uncles = tuple(
-        BlockUncle(idx=idx, block_header_hash=block.header_hash, uncle_hash=uncle_ir.hash)
+        BlockUncle(
+            idx=idx, block_header_hash=block.header_hash, uncle_hash=uncle_ir.hash
+        )
         for idx, uncle_ir in enumerate(block_ir.uncles)
     )
 
@@ -155,7 +171,12 @@ def import_block(session: orm.Session,
     )
     new_topics = get_or_create_topics(session, topic_values, cache)
     logtopics = tuple(
-        LogTopic(idx=idx, topic_topic=topic, log_receipt_hash=log.receipt_hash, log_idx=log.idx)
+        LogTopic(
+            idx=idx,
+            topic_topic=topic,
+            log_receipt_hash=log.receipt_hash,
+            log_idx=log.idx,
+        )
         for bundle, receipt_ir in zip(log_bundles, block_ir.receipts)
         for log, log_ir in zip(bundle, receipt_ir.logs)
         for idx, topic in enumerate(log_ir.topics)
@@ -178,25 +199,34 @@ def import_block(session: orm.Session,
 
 
 def orphan_header_chain(session: orm.Session, orphans: Sequence[HeaderIR]) -> None:
-    for header_ir in orphans:
-        # Set the header to `is_canonical=False`
-        header = session.query(Header).filter(Header.hash == header_ir.hash).one()
-        header.is_canonical = False
+    header_hashes = set(header_ir.hash for header_ir in orphans)
 
-        # Unlink each transaction from the block
-        transactions = session.query(Transaction).join(
-            Block,
-            Transaction.block_header_hash == Block.header_hash,
-        ).filter(
-            Block.header_hash == header_ir.hash,
-        ).all()
+    # Set all the now orphaned headers as being non-canonical
+    session.query(Header).filter(Header.hash.in_(header_hashes)).update(  # type: ignore
+        {"is_canonical": False}
+    )
 
-        for transaction in transactions:
-            transaction.block_header_hash = None
-            session.delete(transaction.receipt)
+    # Unlink each transaction from the block.  We query across the
+    # `BlockTransaction` join table because the
+    # `Transaction.block_header_hash` field may have already been set to
+    # null in the case that this transaction has already been part of
+    # another re-org.
+    session.query(Transaction).join(  # type: ignore
+        BlockTransaction,
+        Transaction.block_header_hash == BlockTransaction.block_header_hash,
+    ).filter(BlockTransaction.block_header_hash.in_(header_hashes)).update(
+        {"block_header_hash": None}
+    )
 
-        objects_to_save = (header,) + tuple(transactions)
-        session.bulk_save_objects(objects_to_save)
+    # Delete all the receipts
+    session.query(Receipt).join(  # type: ignore
+        Transaction, Receipt.transaction_hash == Transaction.hash
+    ).join(
+        BlockTransaction,
+        Transaction.block_header_hash == BlockTransaction.block_header_hash,
+    ).filter(
+        BlockTransaction.block_header_hash.in_(header_hashes)
+    ).delete()
 
 
 class HeadLoader(Service):
@@ -209,14 +239,13 @@ class HeadLoader(Service):
     ) -> None:
         self._block_receive_channel = block_receive_channel
         self._session = session
-        self._topic_cache: LRU[Hash32, None] = LRU(100000)
+        self._topic_cache: LRU[Hash32, None] = LRU(100_000)
 
-    async def _handle_head_packet(self,
-                                  packet: HeadBlockPacket,
-                                  is_detatched: bool = False) -> None:
+    async def _handle_head_packet(
+        self, packet: HeadBlockPacket, is_detatched: bool = False
+    ) -> None:
         self.logger.debug(
-            "Importing new HEAD #%d",
-            packet.blocks[0].header.block_number,
+            "Importing new HEAD #%d", packet.blocks[0].header.block_number
         )
         if packet.orphans:
             self.logger.info(
@@ -237,15 +266,9 @@ class HeadLoader(Service):
 
         for block_ir in packet.blocks[1:]:
             with self._session.begin_nested():
-                import_block(
-                    self._session,
-                    block_ir,
-                    self._topic_cache,
-                )
+                import_block(self._session, block_ir, self._topic_cache)
 
-        self.logger.info(
-            "New chain HEAD: #%s", packet.blocks[-1].header
-        )
+        self.logger.info("New chain HEAD: #%s", packet.blocks[-1].header)
 
     async def run(self) -> None:
         self.logger.info("Started BlockLoader")
@@ -253,10 +276,15 @@ class HeadLoader(Service):
         async with self._block_receive_channel:
             first_packet = await self._block_receive_channel.receive()
             if first_packet.blocks[0].header.block_number > 0:
-                is_detatched = self._session.query(Header).filter(
-                    Header.is_canonical.is_(True),
-                    Header.hash == first_packet.blocks[0].header.parent_hash,
-                ).scalar() is None
+                is_detatched = (
+                    self._session.query(Header)  # type: ignore
+                    .filter(
+                        Header.is_canonical.is_(True),  # type: ignore
+                        Header.hash == first_packet.blocks[0].header.parent_hash,
+                    )
+                    .scalar()
+                    is None
+                )
             else:
                 is_detatched = False
 
@@ -268,15 +296,16 @@ class HeadLoader(Service):
 
 def find_first_missing_block_number(session: orm.Session) -> BlockNumber:
     child_header = aliased(Header)
-    history_head = session.query(Header).outerjoin(
-        child_header,
-        Header.hash == child_header._parent_hash,
-    ).filter(
-        Header.is_canonical.is_(True),
-        child_header._parent_hash.is_(None)
-    ).order_by(
-        Header.block_number,
-    ).first()
+    history_head = (
+        session.query(Header)  # type: ignore
+        .outerjoin(child_header, Header.hash == child_header._parent_hash)
+        .filter(
+            Header.is_canonical.is_(True),  # type: ignore
+            child_header._parent_hash.is_(None),
+        )
+        .order_by(Header.block_number)
+        .first()
+    )
 
     if history_head is None:
         return BlockNumber(0)
@@ -284,41 +313,44 @@ def find_first_missing_block_number(session: orm.Session) -> BlockNumber:
         return BlockNumber(history_head.block_number + 1)
 
 
-def find_first_detatched_block_after(session: orm.Session,
-                                     after_height: BlockNumber,
-                                     ) -> BlockNumber:
-    gap_upper_bound = session.query(Header).filter(
-        Header.is_canonical.is_(True),
-        Header._parent_hash.is_(None),
-        Header._detatched_parent_hash.isnot(None),
-        Header.block_number > after_height,
-    ).order_by(
-        Header.block_number,
-    ).first()
+def find_first_detatched_block_after(
+    session: orm.Session, after_height: BlockNumber
+) -> BlockNumber:
+    gap_upper_bound = (
+        session.query(Header)  # type: ignore
+        .filter(
+            Header.is_canonical.is_(True),  # type: ignore
+            Header._parent_hash.is_(None),  # type: ignore
+            Header._detatched_parent_hash.isnot(None),  # type: ignore
+            Header.block_number > after_height,
+        )
+        .order_by(Header.block_number)
+        .first()
+    )
     if gap_upper_bound is not None:
         return BlockNumber(gap_upper_bound.block_number)
     else:
-        raise NoGapFound(
-            f"No detatched blocks found after height #{after_height}"
-        )
+        raise NoGapFound(f"No detatched blocks found after height #{after_height}")
 
 
 class HistoryFiller(Service):
     logger = logging.getLogger("cthaeh.loader.HistoryFiller")
 
-    def __init__(self,
-                 session: orm.Session,
-                 w3: Web3,
-                 concurrency: int,
-                 start_height: Optional[BlockNumber],
-                 end_height: BlockNumber) -> None:
+    def __init__(
+        self,
+        session: orm.Session,
+        w3: Web3,
+        concurrency: int,
+        start_height: Optional[BlockNumber],
+        end_height: BlockNumber,
+    ) -> None:
         self._w3 = w3
         self._session = session
         self._start_height = start_height
         self._end_height = end_height
         self._concurrency_factor = concurrency
 
-    async def run(self):
+    async def run(self) -> None:
         while True:
             start_height = find_first_missing_block_number(self._session)
             if self._start_height is not None and start_height < self._start_height:
@@ -356,7 +388,9 @@ class HistoryFiller(Service):
                 is_detatched=is_detatched,
             )
 
-            self.logger.info("Running history import: #%d -> %d", start_height, end_height)
+            self.logger.info(
+                "Running history import: #%d -> %d", start_height, end_height
+            )
 
             exfiltrator_manager = self.manager.run_child_service(exfiltrator)
             loader_manager = self.manager.run_child_service(loader)
@@ -366,17 +400,25 @@ class HistoryFiller(Service):
             await loader_manager.wait_finished()
             self.logger.info("Loader finished...")
             if exfiltrator_manager.did_error or loader_manager.did_error:
-                self.logger.error("Error during import import: #%d -> %d", start_height, end_height)
+                self.logger.error(
+                    "Error during import import: #%d -> %d", start_height, end_height
+                )
                 break
             else:
-                self.logger.info("Finished history import: #%d -> %d", start_height, end_height)
+                self.logger.info(
+                    "Finished history import: #%d -> %d", start_height, end_height
+                )
 
             # TODO: connect disconnected head to the new present head
             try:
-                detatched_header = self._session.query(Header).filter(
-                    Header.is_canonical.is_(True),
-                    Header.block_number == end_height,
-                ).one()
+                detatched_header = (
+                    self._session.query(Header)  # type: ignore
+                    .filter(
+                        Header.is_canonical.is_(True),  # type: ignore
+                        Header.block_number == end_height,
+                    )
+                    .one()
+                )
             except NoResultFound:
                 self.logger.info("Finished full history import")
                 self.manager.cancel()
@@ -409,19 +451,19 @@ class HistoryLoader(Service):
         self._session = session
         self._is_detatched = is_detatched
         # TODO: use a shared cache
-        self._topic_cache: LRU[Hash32, None] = LRU(100000)
+        self._topic_cache: LRU[Hash32, None] = LRU(100_000)
 
-    async def _handle_import_block(self, block_ir: BlockIR, is_detatched: bool = False) -> None:
-        self.logger.debug(
-            "Importing block #%d", block_ir.header.block_number
-        )
+    async def _handle_import_block(
+        self, block_ir: BlockIR, is_detatched: bool = False
+    ) -> None:
+        self.logger.debug("Importing block #%d", block_ir.header.block_number)
         async with self._commit_lock:
-            import_block(self._session, block_ir, self._topic_cache, is_detatched=is_detatched)
+            import_block(
+                self._session, block_ir, self._topic_cache, is_detatched=is_detatched
+            )
             self._last_loaded_block = block_ir
 
-        self.logger.debug(
-            "Imported block #%d", block_ir.header.block_number
-        )
+        self.logger.debug("Imported block #%d", block_ir.header.block_number)
 
     async def run(self) -> None:
         self.logger.info("Started BlockLoader")
@@ -432,7 +474,9 @@ class HistoryLoader(Service):
         async with self._block_receive_channel:
             try:
                 first_block_ir = await self._block_receive_channel.receive()
-                await self._handle_import_block(first_block_ir, is_detatched=self._is_detatched)
+                await self._handle_import_block(
+                    first_block_ir, is_detatched=self._is_detatched
+                )
 
                 async for block_ir in self._block_receive_channel:
                     await self._handle_import_block(block_ir)

@@ -6,8 +6,8 @@ from eth_typing import Address, Hash32
 from eth_utils import humanize_hash, to_checksum_address
 
 
-@functools.total_ordering
 @dataclass
+@functools.total_ordering
 class Header:
     is_canonical: bool
 
@@ -51,9 +51,7 @@ class Header:
         )
 
     def __str__(self) -> str:
-        return (
-            f"Header[#{self.block_number} {humanize_hash(self.hash)}]"
-        )
+        return f"Header[#{self.block_number} {humanize_hash(self.hash)}]"
 
     @property
     def is_genesis(self) -> bool:

@@ -13,8 +13,8 @@ from sqlalchemy import (
     Integer,
     LargeBinary,
     UniqueConstraint,
-    orm,
     and_,
+    orm,
 )
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import backref, relationship
@@ -99,12 +99,16 @@ class Header(Base):
     nonce = Column(LargeBinary(8), nullable=False)
 
     children = relationship(
-        "Header", backref=backref("parent", remote_side=[hash]),  # type: ignore
+        "Header", backref=backref("parent", remote_side=[hash])  # type: ignore
     )
 
     @property
     def is_genesis(self) -> bool:
-        return self.block_number == 0 and self.is_canonical and self.parent_hash == GENESIS_PARENT_HASH  # noqa: E501
+        return (
+            self.block_number == 0
+            and self.is_canonical  # noqa: W503
+            and self.parent_hash == GENESIS_PARENT_HASH  # noqa: W503
+        )
 
     @property
     def is_detatched(self) -> bool:
@@ -115,7 +119,7 @@ class Header(Base):
         if self._parent_hash is not None and self._detatched_parent_hash is not None:
             raise TypeError("Invalid: header has two parent hashes")
         elif self._detatched_parent_hash is not None:
-            return self._detatched_parent_hash
+            return Hash32(self._detatched_parent_hash)
         elif self._parent_hash is None:
             if self.block_number == 0:
                 return GENESIS_PARENT_HASH
@@ -133,11 +137,13 @@ class Header(Base):
 
     @classmethod
     def from_ir(cls, header: HeaderIR, is_detatched: bool = False) -> "Header":
+        parent_hash: Optional[Hash32]
         if is_detatched or header.is_genesis:
             parent_hash = None
         else:
             parent_hash = header.parent_hash
 
+        detatched_parent_hash: Optional[Hash32]
         if is_detatched:
             detatched_parent_hash = header.parent_hash
         else:
@@ -206,7 +212,7 @@ class Block(Base):
 
     uncles = relationship("Header", secondary="blockuncle", order_by=BlockUncle.idx)
     transactions = relationship(
-        "Transaction", secondary="blocktransaction", order_by=BlockTransaction.idx,
+        "Transaction", secondary="blocktransaction", order_by=BlockTransaction.idx
     )
 
 
@@ -226,10 +232,7 @@ class Transaction(Base):
         "Block", secondary="blocktransaction", order_by=BlockTransaction.idx
     )
     receipt = relationship(
-        "Receipt",
-        uselist=False,
-        back_populates="transaction",
-        cascade="all",
+        "Receipt", uselist=False, back_populates="transaction", cascade="all"
     )
 
     nonce = Column(BigInteger, nullable=False)
@@ -278,10 +281,7 @@ class Receipt(Base):
     gas_used = Column(BigInteger, nullable=False)
     _bloom = Column(LargeBinary(1024), nullable=False)
     logs = relationship(
-        "Log",
-        back_populates="receipt",
-        order_by="Log.idx",
-        cascade="all",
+        "Log", back_populates="receipt", order_by="Log.idx", cascade="all"
     )
 
     @property
@@ -308,21 +308,20 @@ class LogTopic(Base):
     __tablename__ = "logtopic"
     __table_args__ = (
         UniqueConstraint(
-            "idx", "log_receipt_hash", "log_idx",
-            name="ix_idx_log_receipt_hash_log_idx",
+            "idx", "log_receipt_hash", "log_idx", name="ix_idx_log_receipt_hash_log_idx"
         ),
         Index(
             "ix_idx_topic_topic_log_receipt_hash_log_idx",
-            "idx", "topic_topic", "log_receipt_hash", "log_idx",
+            "idx",
+            "topic_topic",
+            "log_receipt_hash",
+            "log_idx",
         ),
         ForeignKeyConstraint(
-            ('log_idx', 'log_receipt_hash'),
-            ('log.idx', 'log.receipt_hash'),
+            ("log_idx", "log_receipt_hash"), ("log.idx", "log.receipt_hash")
         ),
     )
-    __mapper_args__ = {
-        'confirm_deleted_rows': False,
-    }
+    __mapper_args__ = {"confirm_deleted_rows": False}
 
     id = Column(Integer, primary_key=True)
 
@@ -332,15 +331,10 @@ class LogTopic(Base):
         LargeBinary(32), ForeignKey("topic.topic"), index=True, nullable=False
     )
     log_idx = Column(Integer, nullable=False)
-    log_receipt_hash = Column(
-        LargeBinary(32), nullable=False
-    )
+    log_receipt_hash = Column(LargeBinary(32), nullable=False)
 
     topic = relationship("Topic")
-    log = relationship(
-        "Log",
-        foreign_keys=[log_idx, log_receipt_hash],
-    )
+    log = relationship("Log", foreign_keys=[log_idx, log_receipt_hash])
 
 
 class Log(Base):
@@ -348,10 +342,7 @@ class Log(Base):
 
     __tablename__ = "log"
     __table_args__ = (
-        UniqueConstraint(
-            "idx", "receipt_hash",
-            name="ix_idx_receipt_hash",
-        ),
+        UniqueConstraint("idx", "receipt_hash", name="ix_idx_receipt_hash"),
     )
 
     # composite primary key
@@ -370,7 +361,9 @@ class Log(Base):
         "Topic",
         secondary="logtopic",
         order_by=LogTopic.idx,
-        primaryjoin=and_(LogTopic.log_idx == idx, LogTopic.log_receipt_hash == receipt_hash),
+        primaryjoin=and_(
+            LogTopic.log_idx == idx, LogTopic.log_receipt_hash == receipt_hash
+        ),
     )
     logtopics = relationship(
         "LogTopic",
@@ -429,8 +422,7 @@ class Topic(Base):
         order_by=LogTopic.idx,
         primaryjoin=(LogTopic.topic_topic == topic),
         secondaryjoin=and_(
-            LogTopic.log_idx == Log.idx,
-            LogTopic.log_receipt_hash == Log.receipt_hash,
+            LogTopic.log_idx == Log.idx, LogTopic.log_receipt_hash == Log.receipt_hash
         ),
     )
 

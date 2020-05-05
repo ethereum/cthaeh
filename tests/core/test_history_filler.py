@@ -2,8 +2,8 @@ import pytest
 
 from cthaeh.exceptions import NoGapFound
 from cthaeh.loader import (
-    find_first_missing_block_number,
     find_first_detatched_block_after,
+    find_first_missing_block_number,
 )
 from cthaeh.tools.factories import Hash32Factory, HeaderFactory
 
@@ -15,16 +15,12 @@ def test_find_first_missing_block_number(session):
         HeaderFactory(block_number=2, parent_hash=block_1.hash)
 
         block_6 = HeaderFactory(
-            block_number=6,
-            parent_hash=None,
-            detatched_parent_hash=Hash32Factory(),
+            block_number=6, parent_hash=None, detatched_parent_hash=Hash32Factory()
         )
         HeaderFactory(block_number=7, parent_hash=block_6.hash)
 
         block_12 = HeaderFactory(
-            block_number=12,
-            parent_hash=None,
-            detatched_parent_hash=Hash32Factory(),
+            block_number=12, parent_hash=None, detatched_parent_hash=Hash32Factory()
         )
         HeaderFactory(block_number=13, parent_hash=block_12.hash)
 
@@ -39,16 +35,12 @@ def test_find_first_detatched_block_after(session):
         HeaderFactory(block_number=2, parent_hash=block_1.hash)
 
         block_6 = HeaderFactory(
-            block_number=6,
-            parent_hash=None,
-            detatched_parent_hash=Hash32Factory(),
+            block_number=6, parent_hash=None, detatched_parent_hash=Hash32Factory()
         )
         HeaderFactory(block_number=7, parent_hash=block_6.hash)
 
         block_12 = HeaderFactory(
-            block_number=12,
-            parent_hash=None,
-            detatched_parent_hash=Hash32Factory(),
+            block_number=12, parent_hash=None, detatched_parent_hash=Hash32Factory()
         )
         HeaderFactory(block_number=13, parent_hash=block_12.hash)
 

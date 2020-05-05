@@ -82,7 +82,9 @@ def construct_log(
                     .one()
                 )
             except NoResultFound:
-                header = HeaderFactory(is_canonical=is_canonical, block_number=block_number)
+                header = HeaderFactory(
+                    is_canonical=is_canonical, block_number=block_number
+                )
         else:
             header = HeaderFactory(is_canonical=is_canonical)
 
@@ -118,7 +120,7 @@ def construct_log(
                 idx=idx,
                 log_idx=log.idx,
                 log_receipt_hash=log.receipt.transaction.hash,
-                topic_topic=topic
+                topic_topic=topic,
             )
             for idx, topic in enumerate(topics)
         )

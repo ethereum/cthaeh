@@ -80,7 +80,8 @@ def build_log(
             log_idx=log.idx,
             log_receipt_hash=log.receipt_hash,
             topic_topic=topic,
-        ) for idx, topic in enumerate(topics)
+        )
+        for idx, topic in enumerate(topics)
     )
     return log, logtopics
 

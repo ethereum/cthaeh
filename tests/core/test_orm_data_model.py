@@ -57,13 +57,22 @@ def test_orm_log_with_multiple_topics(session):
     topic_a, topic_b, topic_c = TopicFactory.create_batch(3)
     log = LogFactory()
     log_topic_0 = LogTopicFactory(
-        topic=topic_b, log_idx=log.idx, log_receipt_hash=log.receipt.transaction.hash, idx=0,
+        topic=topic_b,
+        log_idx=log.idx,
+        log_receipt_hash=log.receipt.transaction.hash,
+        idx=0,
     )
     log_topic_1 = LogTopicFactory(
-        topic=topic_a, log_idx=log.idx, log_receipt_hash=log.receipt.transaction.hash, idx=1,
+        topic=topic_a,
+        log_idx=log.idx,
+        log_receipt_hash=log.receipt.transaction.hash,
+        idx=1,
     )
     log_topic_2 = LogTopicFactory(
-        topic=topic_c, log_idx=log.idx, log_receipt_hash=log.receipt.transaction.hash, idx=2,
+        topic=topic_c,
+        log_idx=log.idx,
+        log_receipt_hash=log.receipt.transaction.hash,
+        idx=2,
     )
 
     with session.begin_nested():
