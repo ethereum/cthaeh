@@ -271,6 +271,7 @@ class Receipt(Base):
     query = Session.query_property()
 
     __tablename__ = "receipt"
+    __mapper_args__ = {"confirm_deleted_rows": False}
 
     transaction_hash = Column(
         LargeBinary(32), ForeignKey("transaction.hash"), primary_key=True
@@ -344,6 +345,7 @@ class Log(Base):
     __table_args__ = (
         UniqueConstraint("idx", "receipt_hash", name="ix_idx_receipt_hash"),
     )
+    __mapper_args__ = {"confirm_deleted_rows": False}
 
     # composite primary key
     idx = Column(Integer, primary_key=True, index=True)

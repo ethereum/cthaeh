@@ -10,7 +10,7 @@ from cthaeh.filter import FilterParams
 from cthaeh.loader import get_or_create_topics
 from cthaeh.models import Header, Log, LogTopic
 
-from .factories import (
+from .factories_orm import (
     AddressFactory,
     BlockFactory,
     BlockTransactionFactory,

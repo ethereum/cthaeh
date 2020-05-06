@@ -1,6 +1,6 @@
 from cthaeh.constants import GENESIS_PARENT_HASH
 from cthaeh.models import Block, Header, Receipt, Topic, Transaction
-from cthaeh.tools.factories import (
+from cthaeh.tools.factories_orm import (
     BlockFactory,
     BlockTransactionFactory,
     BlockUncleFactory,

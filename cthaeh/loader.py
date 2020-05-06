@@ -6,7 +6,7 @@ from typing import Iterator, Optional, Sequence
 from async_service import Service
 from eth_typing import BlockNumber, Hash32
 from eth_utils import humanize_hash, to_tuple
-from sqlalchemy import orm
+from sqlalchemy import or_, orm
 from sqlalchemy.orm import aliased
 from sqlalchemy.orm.exc import NoResultFound
 import trio
@@ -51,38 +51,73 @@ def get_or_create_topics(
 @to_tuple
 def get_or_create_transactions(
     session: orm.Session,
-    header_hash: Hash32,
     transactions: Sequence[TransactionIR],
-    cache: LRU[Hash32, None],
+    block_header_hash: Hash32,
 ) -> Iterator[Transaction]:
     for transaction_ir in transactions:
-        if transaction_ir.hash not in cache:
-            try:
-                transaction = (
-                    session.query(Transaction)  # type: ignore
-                    .filter(Transaction.hash == transaction_ir.hash)
-                    .one()
-                )
-            except NoResultFound:
-                cache[transaction_ir.hash] = None
-                yield Transaction.from_ir(transaction_ir, block_header_hash=header_hash)
-            else:
-                transaction.block_header_hash = header_hash
+        try:
+            transaction = (
+                session.query(Transaction)  # type: ignore
+                .filter(Transaction.hash == transaction_ir.hash)
+                .one()
+            )
+            transaction.block_header_hash = block_header_hash
+        except NoResultFound:
+            yield Transaction.from_ir(
+                transaction_ir, block_header_hash=block_header_hash
+            )
 
 
 @to_tuple
 def get_or_create_uncles(
-    session: orm.Session, uncles: Sequence[HeaderIR], cache: LRU[Hash32, None]
+    session: orm.Session, uncles: Sequence[HeaderIR]
 ) -> Iterator[Header]:
     for uncle_ir in uncles:
-        if uncle_ir.hash not in cache:
-            try:
-                session.query(Header).filter(  # type: ignore
-                    Header.hash == uncle_ir.hash
-                ).one()
-            except NoResultFound:
-                cache[uncle_ir.hash] = None
-                yield Header.from_ir(uncle_ir)
+        try:
+            uncle = (
+                session.query(Header)  # type: ignore
+                .filter(Header.hash == uncle_ir.hash)
+                .one()
+            )
+            uncle.is_canonical = False
+        except NoResultFound:
+            yield Header.from_ir(uncle_ir)
+
+
+@to_tuple
+def get_or_create_blocktransactions(
+    session: orm.Session,
+    transactions: Sequence[TransactionIR],
+    block_header_hash: Hash32,
+) -> Iterator[BlockTransaction]:
+    for idx, transaction_ir in enumerate(transactions):
+        try:
+            session.query(BlockTransaction).filter(  # type: ignore
+                BlockTransaction.block_header_hash == block_header_hash,
+                BlockTransaction.transaction_hash == transaction_ir.hash,
+            ).one()
+        except NoResultFound:
+            yield BlockTransaction(
+                idx=idx,
+                transaction_hash=transaction_ir.hash,
+                block_header_hash=block_header_hash,
+            )
+
+
+@to_tuple
+def get_or_create_blockuncles(
+    session: orm.Session, uncles: Sequence[HeaderIR], block_header_hash: Hash32
+) -> Iterator[BlockUncle]:
+    for idx, uncle_ir in enumerate(uncles):
+        try:
+            session.query(BlockUncle).filter(  # type: ignore
+                BlockUncle.block_header_hash == block_header_hash,
+                BlockUncle.uncle_hash == uncle_ir.hash,
+            ).one()
+        except NoResultFound:
+            yield BlockUncle(
+                idx=idx, block_header_hash=block_header_hash, uncle_hash=uncle_ir.hash
+            )
 
 
 def import_block(
@@ -91,142 +126,163 @@ def import_block(
     cache: LRU[Hash32, None],
     is_detatched: bool = False,
 ) -> None:
-    # TODO: Things that need to be cleaned up here.
-    # 1. get_or_create_uncles and get_or_create_transactions end up doing one
-    # query per object.  They can be optimized to only perform a single query
-    # no matter how many objects are present.
-    #
-    # 2. the cache is being re-used across transactions/topics/uncles.  we
-    # should be using a separate cache for each.
-    try:
-        header = (
-            session.query(Header)  # type: ignore
-            .filter(Header.hash == block_ir.header.hash)
-            .one()
-        )
-    except NoResultFound:
-        header = Header.from_ir(block_ir.header, is_detatched=is_detatched)
-        block = Block(header_hash=header.hash)
-    else:
-        header.is_canonical = block_ir.header.is_canonical
-        if is_detatched:
-            header._parent_hash = None
-            header._detatched_parent_hash = block_ir.header.parent_hash
+    with session.begin_nested():
+        # TODO: Things that need to be cleaned up here.
+        # 1. get_or_create_uncles and get_or_create_transactions end up doing one
+        # query per object.  They can be optimized to only perform a single query
+        # no matter how many objects are present.
+        #
+        # 2. the cache is being re-used across transactions/topics/uncles.  we
+        # should be using a separate cache for each.
+        try:
+            header = (
+                session.query(Header)  # type: ignore
+                .filter(Header.hash == block_ir.header.hash)
+                .one()
+            )
+        except NoResultFound:
+            header = Header.from_ir(block_ir.header, is_detatched=is_detatched)
+            block = Block(header_hash=header.hash)
+            session.add_all((header, block))  # type: ignore
         else:
-            header._parent_hash = block_ir.header.parent_hash
-            header._detatched_parent_hash = None
-        block = header.block
+            header.is_canonical = block_ir.header.is_canonical
+            block = header.block
 
-    transaction_hashes = set(
-        transaction_ir.hash for transaction_ir in block_ir.transactions
-    )
-    # Note that `transactions` below is not the full set of transaction
-    # objects, but rather only the new ones that were not already
-    # present in our database.
-    transactions = get_or_create_transactions(
-        session=session,
-        header_hash=block_ir.header.hash,
-        transactions=block_ir.transactions,
-        # TODO: need to use a different cache than the topic cache....
-        cache=cache,
-    )
-    block_transactions = tuple(
-        BlockTransaction(
-            idx=idx,
-            block_header_hash=block.header_hash,
-            transaction_hash=transaction_hash,
+        new_transactions = get_or_create_transactions(
+            session, block_ir.transactions, block_ir.header.hash
         )
-        for idx, transaction_hash in enumerate(transaction_hashes)
-    )
 
-    # Note: this only contains new uncles.
-    uncles = get_or_create_uncles(session, block_ir.uncles, cache)
-    block_uncles = tuple(
-        BlockUncle(
-            idx=idx, block_header_hash=block.header_hash, uncle_hash=uncle_ir.hash
+        # Link the uncles to block
+        new_blocktransactions = get_or_create_blocktransactions(
+            session, block_ir.transactions, block_ir.header.hash
         )
-        for idx, uncle_ir in enumerate(block_ir.uncles)
-    )
 
-    receipts = tuple(
-        Receipt.from_ir(receipt_ir, Hash32(transaction_hash))
-        for transaction_hash, receipt_ir in zip(transaction_hashes, block_ir.receipts)
-    )
+        # Note: this only contains new uncles.
+        new_uncles = get_or_create_uncles(session, block_ir.uncles)
 
-    log_bundles = tuple(
-        tuple(
-            Log.from_ir(log_ir, idx, Hash32(receipt.transaction_hash))
-            for idx, log_ir in enumerate(receipt_ir.logs)
+        # Link the uncles to block
+        blockuncles = get_or_create_blockuncles(
+            session, block_ir.uncles, block_ir.header.hash
         )
-        for receipt, receipt_ir in zip(receipts, block_ir.receipts)
-    )
-    logs = tuple(itertools.chain(*log_bundles))
 
-    # These need to be lazily created.
-    topic_values = tuple(
-        topic
-        for receipt_ir in block_ir.receipts
-        for log_ir in receipt_ir.logs
-        for topic in log_ir.topics
-    )
-    new_topics = get_or_create_topics(session, topic_values, cache)
-    logtopics = tuple(
-        LogTopic(
-            idx=idx,
-            topic_topic=topic,
-            log_receipt_hash=log.receipt_hash,
-            log_idx=log.idx,
+        receipts = tuple(
+            Receipt.from_ir(receipt_ir, Hash32(transaction_ir.hash))
+            for transaction_ir, receipt_ir in zip(
+                block_ir.transactions, block_ir.receipts
+            )
         )
-        for bundle, receipt_ir in zip(log_bundles, block_ir.receipts)
-        for log, log_ir in zip(bundle, receipt_ir.logs)
-        for idx, topic in enumerate(log_ir.topics)
-    )
 
-    objects_to_save = tuple(
-        itertools.chain(
-            (header, block),
-            uncles,
-            transactions,
-            receipts,
-            logs,
-            block_uncles,
-            block_transactions,
-            new_topics,
-            logtopics,
+        log_bundles = tuple(
+            tuple(
+                Log.from_ir(log_ir, idx, Hash32(receipt.transaction_hash))
+                for idx, log_ir in enumerate(receipt_ir.logs)
+            )
+            for receipt, receipt_ir in zip(receipts, block_ir.receipts)
         )
-    )
-    session.bulk_save_objects(objects_to_save)
+        logs = tuple(itertools.chain(*log_bundles))
+
+        # These need to be lazily created.
+        topic_values = tuple(
+            topic
+            for receipt_ir in block_ir.receipts
+            for log_ir in receipt_ir.logs
+            for topic in log_ir.topics
+        )
+        new_topics = get_or_create_topics(session, topic_values, cache)
+        logtopics = tuple(
+            LogTopic(
+                idx=idx,
+                topic_topic=topic,
+                log_receipt_hash=log.receipt_hash,
+                log_idx=log.idx,
+            )
+            for bundle, receipt_ir in zip(log_bundles, block_ir.receipts)
+            for log, log_ir in zip(bundle, receipt_ir.logs)
+            for idx, topic in enumerate(log_ir.topics)
+        )
+
+        objects_to_save = tuple(
+            itertools.chain(
+                new_uncles,
+                new_transactions,
+                receipts,
+                logs,
+                blockuncles,
+                new_blocktransactions,
+                new_topics,
+                logtopics,
+            )
+        )
+        session.add_all(objects_to_save)  # type: ignore
+
+
+logger = logging.getLogger("cthaeh.import")
 
 
 def orphan_header_chain(session: orm.Session, orphans: Sequence[HeaderIR]) -> None:
-    header_hashes = set(header_ir.hash for header_ir in orphans)
+    with session.begin_nested():
+        header_hashes = set(header_ir.hash for header_ir in orphans)
 
-    # Set all the now orphaned headers as being non-canonical
-    session.query(Header).filter(Header.hash.in_(header_hashes)).update(  # type: ignore
-        {"is_canonical": False}
-    )
+        # Set all the now orphaned headers as being non-canonical
+        session.query(Header).filter(  # type: ignore
+            Header.hash.in_(header_hashes)
+        ).update({"is_canonical": False}, synchronize_session=False)
 
-    # Unlink each transaction from the block.  We query across the
-    # `BlockTransaction` join table because the
-    # `Transaction.block_header_hash` field may have already been set to
-    # null in the case that this transaction has already been part of
-    # another re-org.
-    session.query(Transaction).join(  # type: ignore
-        BlockTransaction,
-        Transaction.block_header_hash == BlockTransaction.block_header_hash,
-    ).filter(BlockTransaction.block_header_hash.in_(header_hashes)).update(
-        {"block_header_hash": None}
-    )
+        # Unlink each transaction from the block.  We query across the
+        # `BlockTransaction` join table because the
+        # `Transaction.block_header_hash` field may have already been set to
+        # null in the case that this transaction has already been part of
+        # another re-org.
 
-    # Delete all the receipts
-    session.query(Receipt).join(  # type: ignore
-        Transaction, Receipt.transaction_hash == Transaction.hash
-    ).join(
-        BlockTransaction,
-        Transaction.block_header_hash == BlockTransaction.block_header_hash,
-    ).filter(
-        BlockTransaction.block_header_hash.in_(header_hashes)
-    ).delete()
+        # We can't perform an `.update()` call if we do this with a join so first
+        # we pull the transaction hashes above and then we execute the update.
+        transactions = (
+            session.query(Transaction)  # type: ignore
+            .join(
+                BlockTransaction, Transaction.hash == BlockTransaction.transaction_hash
+            )
+            .filter(
+                or_(
+                    BlockTransaction.block_header_hash.in_(header_hashes),
+                    Transaction.block_header_hash.in_(header_hashes),
+                )
+            )
+            .all()
+        )
+
+        if not transactions:
+            logger.debug("No orphaned transactions to unlink....")
+
+        for transaction in transactions:
+            logger.debug(
+                "Unlinking txn: %s from block %s",
+                humanize_hash(transaction.hash),
+                humanize_hash(transaction.block_header_hash),
+            )
+            with session.begin_nested():
+                transaction.block_header_hash = None
+                session.add(transaction)
+
+            if transaction.receipt is not None:
+                for log_idx, log in enumerate(transaction.receipt.logs):
+                    logger.debug("Deleting log #%d", log_idx)
+                    for logtopic in log.logtopics:
+                        logger.debug(
+                            "Deleting logtopic #%d: %s",
+                            logtopic.idx,
+                            humanize_hash(logtopic.topic_topic),
+                        )
+                        with session.begin_nested():
+                            session.delete(logtopic)  # type: ignore
+                    with session.begin_nested():
+                        session.delete(log)  # type: ignore
+                logger.debug(
+                    "Deleting txn receipt: %s", humanize_hash(transaction.hash)
+                )
+                with session.begin_nested():
+                    session.delete(transaction.receipt)  # type: ignore
+            else:
+                logger.debug("Txn %s already has null receipt")
 
 
 class HeadLoader(Service):
@@ -247,16 +303,15 @@ class HeadLoader(Service):
         self.logger.debug(
             "Importing new HEAD #%d", packet.blocks[0].header.block_number
         )
-        if packet.orphans:
-            self.logger.info(
-                "Reorg orphaned %d blocks starting at %s",
-                len(packet.orphans),
-                packet.orphans[0],
-            )
-            with self._session.begin_nested():
+        with self._session.begin_nested():
+            if packet.orphans:
+                self.logger.info(
+                    "Reorg orphaned %d blocks starting at %s",
+                    len(packet.orphans),
+                    packet.orphans[0],
+                )
                 orphan_header_chain(self._session, packet.orphans)
 
-        with self._session.begin_nested():
             import_block(
                 self._session,
                 packet.blocks[0],
@@ -264,9 +319,10 @@ class HeadLoader(Service):
                 is_detatched=is_detatched,
             )
 
-        for block_ir in packet.blocks[1:]:
-            with self._session.begin_nested():
+            for block_ir in packet.blocks[1:]:
                 import_block(self._session, block_ir, self._topic_cache)
+
+        self._session.commit()  # type: ignore
 
         self.logger.info("New chain HEAD: #%s", packet.blocks[-1].header)
 
@@ -278,10 +334,7 @@ class HeadLoader(Service):
             if first_packet.blocks[0].header.block_number > 0:
                 is_detatched = (
                     self._session.query(Header)  # type: ignore
-                    .filter(
-                        Header.is_canonical.is_(True),  # type: ignore
-                        Header.hash == first_packet.blocks[0].header.parent_hash,
-                    )
+                    .filter(Header.hash == first_packet.blocks[0].header.parent_hash)
                     .scalar()
                     is None
                 )
@@ -396,9 +449,11 @@ class HistoryFiller(Service):
             loader_manager = self.manager.run_child_service(loader)
 
             await exfiltrator_manager.wait_finished()
-            self.logger.info("Exfiltrator finished...")
             await loader_manager.wait_finished()
-            self.logger.info("Loader finished...")
+
+            await trio.sleep(
+                0.05
+            )  # small sleep to ensure we aren't in the process of cancellation
             if exfiltrator_manager.did_error or loader_manager.did_error:
                 self.logger.error(
                     "Error during import import: #%d -> %d", start_height, end_height
@@ -447,7 +502,6 @@ class HistoryLoader(Service):
         is_detatched: bool,
     ) -> None:
         self._block_receive_channel = block_receive_channel
-        self._commit_lock = trio.Lock()
         self._session = session
         self._is_detatched = is_detatched
         # TODO: use a shared cache
@@ -457,31 +511,28 @@ class HistoryLoader(Service):
         self, block_ir: BlockIR, is_detatched: bool = False
     ) -> None:
         self.logger.debug("Importing block #%d", block_ir.header.block_number)
-        async with self._commit_lock:
+        with self._session.begin_nested():
             import_block(
                 self._session, block_ir, self._topic_cache, is_detatched=is_detatched
             )
-            self._last_loaded_block = block_ir
+        self._session.commit()  # type: ignore
+        self._last_loaded_block = block_ir
 
         self.logger.debug("Imported block #%d", block_ir.header.block_number)
 
     async def run(self) -> None:
         self.logger.info("Started BlockLoader")
 
-        self.manager.run_daemon_task(self._commit_on_interval)
         self.manager.run_daemon_task(self._periodically_report_import)
 
         async with self._block_receive_channel:
-            try:
-                first_block_ir = await self._block_receive_channel.receive()
-                await self._handle_import_block(
-                    first_block_ir, is_detatched=self._is_detatched
-                )
+            first_block_ir = await self._block_receive_channel.receive()
+            await self._handle_import_block(
+                first_block_ir, is_detatched=self._is_detatched
+            )
 
-                async for block_ir in self._block_receive_channel:
-                    await self._handle_import_block(block_ir)
-            finally:
-                self._session.commit()  # type: ignore
+            async for block_ir in self._block_receive_channel:
+                await self._handle_import_block(block_ir)
 
         self.manager.cancel()
 
@@ -554,8 +605,3 @@ class HistoryLoader(Service):
 
                 last_reported_height = last_loaded_height
                 last_reported_at = time.monotonic()
-
-    async def _commit_on_interval(self) -> None:
-        async for _ in every(1):  # noqa: F841
-            async with self._commit_lock:
-                self._session.commit()  # type: ignore

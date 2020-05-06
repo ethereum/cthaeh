@@ -1,5 +1,5 @@
 from cthaeh.filter import FilterParams, filter_logs
-from cthaeh.tools.factories import AddressFactory, Hash32Factory
+from cthaeh.tools.factories_orm import AddressFactory, Hash32Factory
 from cthaeh.tools.logs import check_filter_results, construct_log
 
 

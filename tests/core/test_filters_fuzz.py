@@ -12,7 +12,7 @@ from sqlalchemy.orm.exc import NoResultFound
 
 from cthaeh.filter import FilterParams, filter_logs
 from cthaeh.models import Header, Log, Receipt, Topic
-from cthaeh.tools.factories import (
+from cthaeh.tools.factories_orm import (
     AddressFactory,
     BlockFactory,
     BlockTransactionFactory,

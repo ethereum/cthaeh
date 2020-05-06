@@ -1,7 +1,5 @@
 import secrets
 
-from eth_typing import Address, Hash32
-
 from cthaeh.constants import GENESIS_PARENT_HASH
 from cthaeh.models import (
     Block,
@@ -16,20 +14,14 @@ from cthaeh.models import (
 )
 from cthaeh.session import Session
 
+from .factories_common import AddressFactory, Hash32Factory
+
 try:
     import factory
 except ImportError as err:
     raise ImportError(
         "The `factory-boy` library is required to use the `alexandria.tools.factories` module"
     ) from err
-
-
-def AddressFactory() -> Address:
-    return Address(secrets.token_bytes(20))
-
-
-def Hash32Factory() -> Hash32:
-    return Hash32(secrets.token_bytes(32))
 
 
 class HeaderFactory(factory.alchemy.SQLAlchemyModelFactory):  # type: ignore

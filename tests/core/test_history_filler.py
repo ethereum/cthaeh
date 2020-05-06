@@ -5,7 +5,7 @@ from cthaeh.loader import (
     find_first_detatched_block_after,
     find_first_missing_block_number,
 )
-from cthaeh.tools.factories import Hash32Factory, HeaderFactory
+from cthaeh.tools.factories_orm import Hash32Factory, HeaderFactory
 
 
 def test_find_first_missing_block_number(session):
