@@ -26,6 +26,7 @@ def _Session(engine, _schema):
 def session(_Session, _schema):
     session = Session()
     transaction = session.begin_nested()
+    session.commit = lambda: None
 
     try:
         yield session

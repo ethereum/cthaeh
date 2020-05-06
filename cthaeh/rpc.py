@@ -22,7 +22,7 @@ from mypy_extensions import TypedDict
 from sqlalchemy import orm
 import trio
 
-from cthaeh.filter import FilterParams, filter_logs
+from cthaeh.filter import FilterParams, FilterTopics, filter_logs
 from cthaeh.models import BlockTransaction, Log
 
 NEW_LINE = "\n"
@@ -276,14 +276,14 @@ def _rpc_request_to_filter_params(raw_params: RawFilterParams) -> FilterParams:
     else:
         raise TypeError(f"Unsupported address: {raw_params['address']!r}")
 
-    topics: Tuple[Union[None, Hash32, Tuple[Hash32, ...]], ...]
+    topics: FilterTopics
 
     if "topics" not in raw_params:
         topics = ()
     elif raw_params["topics"] is None:
         topics = ()
     elif isinstance(raw_params["topics"], Sequence):
-        topics = _normalize_topics(raw_params["topics"])
+        topics = _normalize_topics(raw_params["topics"])  # type: ignore
     else:
         raise TypeError(f"Unsupported topics: {raw_params['topics']!r}")
 

@@ -1,7 +1,5 @@
 import secrets
 
-from eth_typing import Address, Hash32
-
 from cthaeh.constants import GENESIS_PARENT_HASH
 from cthaeh.models import (
     Block,
@@ -16,6 +14,8 @@ from cthaeh.models import (
 )
 from cthaeh.session import Session
 
+from .factories_common import AddressFactory, Hash32Factory
+
 try:
     import factory
 except ImportError as err:
@@ -24,25 +24,22 @@ except ImportError as err:
     ) from err
 
 
-def AddressFactory() -> Address:
-    return Address(secrets.token_bytes(20))
-
-
-def Hash32Factory() -> Hash32:
-    return Hash32(secrets.token_bytes(32))
-
-
 class HeaderFactory(factory.alchemy.SQLAlchemyModelFactory):  # type: ignore
     class Meta:
         model = Header
         sqlalchemy_session = Session
-        rename = {"bloom": "_bloom"}
+        rename = {
+            "bloom": "_bloom",
+            "parent_hash": "_parent_hash",
+            "detatched_parent_hash": "_detatched_parent_hash",
+        }
 
     hash = factory.LazyFunction(Hash32Factory)
 
     is_canonical = True
 
-    _parent_hash = GENESIS_PARENT_HASH
+    parent_hash = GENESIS_PARENT_HASH
+    detatched_parent_hash = None
 
     uncles_hash = factory.LazyFunction(Hash32Factory)
     coinbase = factory.LazyFunction(AddressFactory)
@@ -153,4 +150,3 @@ class LogTopicFactory(factory.alchemy.SQLAlchemyModelFactory):  # type: ignore
     idx = 0
 
     topic = factory.SubFactory(TopicFactory)
-    log = factory.SubFactory(LogFactory)

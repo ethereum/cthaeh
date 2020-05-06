@@ -17,7 +17,14 @@ BlockIdentifier = BlockNumber
 #     Literal['earliest'],
 #     BlockNumber,
 # ]
-Topic = Union[None, Hash32, Tuple[Hash32, ...]]
+_Topic = Union[None, Hash32, Tuple[Hash32, ...]]
+FilterTopics = Union[
+    Tuple[()],
+    Tuple[_Topic],
+    Tuple[_Topic, _Topic],
+    Tuple[_Topic, _Topic, _Topic],
+    Tuple[_Topic, _Topic, _Topic, _Topic],
+]
 
 logger = logging.getLogger("cthaeh.filter")
 
@@ -26,7 +33,7 @@ class FilterParams(NamedTuple):
     from_block: Optional[BlockIdentifier] = None
     to_block: Optional[BlockIdentifier] = None
     address: Union[None, Address, Tuple[Address, ...]] = None
-    topics: Tuple[Topic, ...] = ()
+    topics: FilterTopics = ()
 
 
 logtopic_0 = aliased(LogTopic)
@@ -88,10 +95,26 @@ def filter_logs(session: orm.Session, params: FilterParams) -> Tuple[Log, ...]:
         .join(Transaction, Receipt.transaction_hash == Transaction.hash)
         .join(Block, Transaction.block_header_hash == Block.header_hash)
         .join(Header, Block.header_hash == Header.hash)
-        .outerjoin(logtopic_0, Log.id == logtopic_0.log_id)
-        .outerjoin(logtopic_1, Log.id == logtopic_1.log_id)
-        .outerjoin(logtopic_2, Log.id == logtopic_2.log_id)
-        .outerjoin(logtopic_3, Log.id == logtopic_3.log_id)
+        .outerjoin(logtopic_0, Log.logtopics)
+        .outerjoin(logtopic_1, Log.logtopics)
+        .outerjoin(logtopic_2, Log.logtopics)
+        .outerjoin(logtopic_3, Log.logtopics)
+        # .outerjoin(
+        #     logtopic_0,
+        #     and_(Log.idx == logtopic_0.log_idx, Log.receipt_hash == logtopic_0.log_receipt_hash),
+        # )
+        # .outerjoin(
+        #     logtopic_1,
+        #     and_(Log.idx == logtopic_1.log_idx, Log.receipt_hash == logtopic_1.log_receipt_hash),
+        # )
+        # .outerjoin(
+        #     logtopic_2,
+        #     and_(Log.idx == logtopic_2.log_idx, Log.receipt_hash == logtopic_2.log_receipt_hash),
+        # )
+        # .outerjoin(
+        #     logtopic_3,
+        #     and_(Log.idx == logtopic_3.log_idx, Log.receipt_hash == logtopic_3.log_receipt_hash),
+        # )
         .filter(*orm_filters)
     )
 

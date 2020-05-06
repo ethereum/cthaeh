@@ -8,15 +8,14 @@ from sqlalchemy.orm.exc import NoResultFound
 
 from cthaeh.filter import FilterParams
 from cthaeh.loader import get_or_create_topics
-from cthaeh.models import Header, Log
+from cthaeh.models import Header, Log, LogTopic
 
-from .factories import (
+from .factories_orm import (
     AddressFactory,
     BlockFactory,
     BlockTransactionFactory,
     HeaderFactory,
     LogFactory,
-    LogTopicFactory,
 )
 
 
@@ -73,52 +72,62 @@ def construct_log(
     data: bytes = b"",
     is_canonical: bool = True,
 ) -> Log:
-    if block_number is not None:
-        try:
-            header = (
-                session.query(Header)  # type: ignore
-                .filter(Header.is_canonical.is_(is_canonical))  # type: ignore
-                .filter(Header.block_number == block_number)
-                .one()
+    with session.begin_nested():
+        if block_number is not None:
+            try:
+                header = (
+                    session.query(Header)  # type: ignore
+                    .filter(Header.is_canonical.is_(is_canonical))  # type: ignore
+                    .filter(Header.block_number == block_number)
+                    .one()
+                )
+            except NoResultFound:
+                header = HeaderFactory(
+                    is_canonical=is_canonical, block_number=block_number
+                )
+        else:
+            header = HeaderFactory(is_canonical=is_canonical)
+
+        if address is None:
+            address = AddressFactory()
+
+        session.add(header)
+
+        topic_objs = get_or_create_topics(session, topics, {})
+
+        session.add_all(topic_objs)  # type: ignore
+
+        if is_canonical:
+            log = LogFactory(
+                receipt__transaction__block__header=header, address=address, data=data
             )
-        except NoResultFound:
-            header = HeaderFactory(is_canonical=is_canonical, block_number=block_number)
-    else:
-        header = HeaderFactory(is_canonical=is_canonical)
+            block_transaction = BlockTransactionFactory(
+                idx=0,
+                block=log.receipt.transaction.block,
+                transaction=log.receipt.transaction,
+            )
+            session.add(block_transaction)
+        else:
+            log = LogFactory(receipt__transaction__block=None)
+            block = BlockFactory(header=header)
+            block_transaction = BlockTransactionFactory(
+                idx=0, block=block, transaction=log.receipt.transaction
+            )
+            session.add_all((block, block_transaction))  # type: ignore
 
-    if address is None:
-        address = AddressFactory()
-
-    session.add(header)
-
-    topic_objs = get_or_create_topics(session, topics)
-
-    session.add_all(topic_objs)  # type: ignore
-
-    if is_canonical:
-        log = LogFactory(
-            receipt__transaction__block__header=header, address=address, data=data
+        log_topics = tuple(
+            LogTopic(
+                idx=idx,
+                log_idx=log.idx,
+                log_receipt_hash=log.receipt.transaction.hash,
+                topic_topic=topic,
+            )
+            for idx, topic in enumerate(topics)
         )
-        block_transaction = BlockTransactionFactory(
-            idx=0,
-            block=log.receipt.transaction.block,
-            transaction=log.receipt.transaction,
-        )
-        session.add(block_transaction)
-    else:
-        log = LogFactory(receipt__transaction__block=None)
-        block = BlockFactory(header=header)
-        block_transaction = BlockTransactionFactory(
-            idx=0, block=block, transaction=log.receipt.transaction
-        )
-        session.add_all((block, block_transaction))  # type: ignore
 
-    log_topics = tuple(
-        LogTopicFactory(idx=idx, log=log, topic=topic)
-        for idx, topic in enumerate(topic_objs)
-    )
+        session.add(log)
+        session.add_all(log_topics)  # type: ignore
 
-    session.add(log)
-    session.add_all(log_topics)  # type: ignore
+    session.refresh(log)
 
     return log

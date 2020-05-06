@@ -12,7 +12,7 @@ from sqlalchemy.orm.exc import NoResultFound
 
 from cthaeh.filter import FilterParams, filter_logs
 from cthaeh.models import Header, Log, Receipt, Topic
-from cthaeh.tools.factories import (
+from cthaeh.tools.factories_orm import (
     AddressFactory,
     BlockFactory,
     BlockTransactionFactory,
@@ -75,7 +75,12 @@ def build_log(
     log = LogFactory(idx=idx, receipt=receipt, address=address, data=data)
 
     logtopics = tuple(
-        LogTopicFactory(idx=idx, log=log, topic_topic=topic)
+        LogTopicFactory(
+            idx=idx,
+            log_idx=log.idx,
+            log_receipt_hash=log.receipt_hash,
+            topic_topic=topic,
+        )
         for idx, topic in enumerate(topics)
     )
     return log, logtopics
@@ -89,57 +94,58 @@ def build_block_chain(
     num_blocks: int,
 ) -> Iterator[Header]:
     for block_number in range(num_blocks):
-        if block_number == 0:
-            parent_hash = None
-        else:
-            parent = (
-                session.query(Header)
-                .filter(
-                    Header.block_number == block_number - 1,
-                    Header.is_canonical.is_(True),
+        with session.begin_nested():
+            if block_number == 0:
+                parent_hash = None
+            else:
+                parent = (
+                    session.query(Header)
+                    .filter(
+                        Header.block_number == block_number - 1,
+                        Header.is_canonical.is_(True),
+                    )
+                    .one()
                 )
-                .one()
+                parent_hash = parent.hash
+
+            header = HeaderFactory(block_number=block_number, _parent_hash=parent_hash)
+            block = BlockFactory(header=header)
+
+            num_transactions = int(random.expovariate(0.1))
+
+            transactions = tuple(
+                TransactionFactory(block=block) for _ in range(num_transactions)
             )
-            parent_hash = parent.hash
+            blocktransactions = tuple(
+                BlockTransactionFactory(idx=idx, block=block, transaction=transaction)
+                for idx, transaction in enumerate(transactions)
+            )
+            receipts = tuple(
+                ReceiptFactory(transaction=transaction) for transaction in transactions
+            )
+            num_logs_per_transaction = tuple(
+                int(random.expovariate(0.1)) for transaction in transactions
+            )
+            log_bundles = tuple(
+                build_log(session, idx, receipt, topic_factory, address_factory)
+                for num_logs, receipt in zip(num_logs_per_transaction, receipts)
+                for idx in range(num_logs)
+            )
+            if log_bundles:
+                logs, logtopic_bundles = zip(*log_bundles)
+                logtopics = tuple(itertools.chain(*logtopic_bundles))
+            else:
+                logs, logtopics = (), ()
 
-        header = HeaderFactory(block_number=block_number, _parent_hash=parent_hash)
-        block = BlockFactory(header=header)
+            session.add(header)
+            session.add(block)
+            session.add_all(transactions)
+            session.add_all(blocktransactions)
+            session.add_all(receipts)
+            session.add_all(logs)
+            session.add_all(logtopics)
 
-        num_transactions = int(random.expovariate(0.1))
-
-        transactions = tuple(
-            TransactionFactory(block=block) for _ in range(num_transactions)
-        )
-        blocktransactions = tuple(
-            BlockTransactionFactory(idx=idx, block=block, transaction=transaction)
-            for idx, transaction in enumerate(transactions)
-        )
-        receipts = tuple(
-            ReceiptFactory(transaction=transaction) for transaction in transactions
-        )
-        num_logs_per_transaction = tuple(
-            int(random.expovariate(0.1)) for transaction in transactions
-        )
-        log_bundles = tuple(
-            build_log(session, idx, receipt, topic_factory, address_factory)
-            for num_logs, receipt in zip(num_logs_per_transaction, receipts)
-            for idx in range(num_logs)
-        )
-        if log_bundles:
-            logs, logtopic_bundles = zip(*log_bundles)
-            logtopics = tuple(itertools.chain(*logtopic_bundles))
-        else:
-            logs, logtopics = (), ()
-
-        session.add(header)
-        session.add(block)
-        session.add_all(transactions)
-        session.add_all(blocktransactions)
-        session.add_all(receipts)
-        session.add_all(logs)
-        session.add_all(logtopics)
-
-        yield header
+            yield header
 
 
 def build_filter(
@@ -170,7 +176,7 @@ MAX_BLOCK_COUNT = 5
     num_blocks=st.integers(min_value=0, max_value=MAX_BLOCK_COUNT),
     random_module=st.random_module(),
 )
-@pytest.mark.slow
+@pytest.mark.skip
 def test_filters_fuzzy(_Session, num_blocks, random_module):
     topic_factory = ThingGenerator(Hash32Factory)
     address_factory = ThingGenerator(AddressFactory)
