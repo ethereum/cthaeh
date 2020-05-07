@@ -68,6 +68,7 @@ class Header(Base):
             "_parent_hash is null or _detatched_parent_hash is null",
             name="_no_double_parent_hash",
         ),
+        Index("ix_hash_is_canonical", "hash", "is_canonical"),
     )
 
     hash = Column(LargeBinary(32), primary_key=True)
@@ -77,7 +78,7 @@ class Header(Base):
         "Block", secondary="blockuncle", order_by=BlockUncle.idx
     )
 
-    is_canonical = Column(Boolean, nullable=False)
+    is_canonical = Column(Boolean, nullable=False, index=True)
 
     _detatched_parent_hash = Column(LargeBinary(32), nullable=True, index=True)
     _parent_hash = Column(

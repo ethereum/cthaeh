@@ -34,6 +34,8 @@ from cthaeh.models import (
     query_row_count,
 )
 
+logger = logging.getLogger("cthaeh.import")
+
 
 @to_tuple
 def get_or_create_topics(
@@ -54,34 +56,41 @@ def get_or_create_transactions(
     transactions: Sequence[TransactionIR],
     block_header_hash: Hash32,
 ) -> Iterator[Transaction]:
+    transaction_hashes = set(transaction_ir.hash for transaction_ir in transactions)
+    already_present_hashes = set(
+        result.hash
+        for result in session.query(Transaction.hash)  # type: ignore
+        .filter(Transaction.hash.in_(transaction_hashes))
+        .all()
+    )
+    session.query(Transaction).filter(  # type: ignore
+        Transaction.hash.in_(already_present_hashes)
+    ).update({"block_header_hash": block_header_hash}, synchronize_session=False)
     for transaction_ir in transactions:
-        try:
-            transaction = (
-                session.query(Transaction)  # type: ignore
-                .filter(Transaction.hash == transaction_ir.hash)
-                .one()
-            )
-            transaction.block_header_hash = block_header_hash
-        except NoResultFound:
-            yield Transaction.from_ir(
-                transaction_ir, block_header_hash=block_header_hash
-            )
+        if transaction_ir.hash in already_present_hashes:
+            continue
+        yield Transaction.from_ir(transaction_ir, block_header_hash=block_header_hash)
 
 
 @to_tuple
 def get_or_create_uncles(
     session: orm.Session, uncles: Sequence[HeaderIR]
 ) -> Iterator[Header]:
+    uncle_hashes = set(uncle_ir.hash for uncle_ir in uncles)
+    already_present_hashes = set(
+        result.hash
+        for result in session.query(Header.hash)  # type: ignore
+        .filter(Header.hash.in_(uncle_hashes))
+        .all()
+    )
+    session.query(Header).filter(  # type: ignore
+        Header.hash.in_(already_present_hashes),
+        Header.is_canonical.is_(True),  # type: ignore
+    ).update({"is_canonical": False}, synchronize_session=False)
     for uncle_ir in uncles:
-        try:
-            uncle = (
-                session.query(Header)  # type: ignore
-                .filter(Header.hash == uncle_ir.hash)
-                .one()
-            )
-            uncle.is_canonical = False
-        except NoResultFound:
-            yield Header.from_ir(uncle_ir)
+        if uncle_ir.hash in already_present_hashes:
+            continue
+        yield Header.from_ir(uncle_ir)
 
 
 @to_tuple
@@ -90,34 +99,46 @@ def get_or_create_blocktransactions(
     transactions: Sequence[TransactionIR],
     block_header_hash: Hash32,
 ) -> Iterator[BlockTransaction]:
+    transaction_hashes = set(transaction_ir.hash for transaction_ir in transactions)
+    already_present_hashes = set(
+        result.transaction_hash
+        for result in session.query(  # type: ignore
+            BlockTransaction.transaction_hash
+        ).filter(
+            BlockTransaction.block_header_hash == block_header_hash,
+            BlockTransaction.transaction_hash.in_(transaction_hashes),
+        )
+    )
     for idx, transaction_ir in enumerate(transactions):
-        try:
-            session.query(BlockTransaction).filter(  # type: ignore
-                BlockTransaction.block_header_hash == block_header_hash,
-                BlockTransaction.transaction_hash == transaction_ir.hash,
-            ).one()
-        except NoResultFound:
-            yield BlockTransaction(
-                idx=idx,
-                transaction_hash=transaction_ir.hash,
-                block_header_hash=block_header_hash,
-            )
+        if transaction_ir.hash in already_present_hashes:
+            continue
+        yield BlockTransaction(
+            idx=idx,
+            transaction_hash=transaction_ir.hash,
+            block_header_hash=block_header_hash,
+        )
 
 
 @to_tuple
 def get_or_create_blockuncles(
     session: orm.Session, uncles: Sequence[HeaderIR], block_header_hash: Hash32
 ) -> Iterator[BlockUncle]:
+    uncle_hashes = set(uncle_ir.hash for uncle_ir in uncles)
+    already_present_hashes = set(
+        result.hash
+        for result in session.query(BlockUncle.uncle_hash)  # type: ignore
+        .filter(
+            BlockUncle.block_header_hash == block_header_hash,
+            BlockUncle.uncle_hash.in_(uncle_hashes),
+        )
+        .all()
+    )
     for idx, uncle_ir in enumerate(uncles):
-        try:
-            session.query(BlockUncle).filter(  # type: ignore
-                BlockUncle.block_header_hash == block_header_hash,
-                BlockUncle.uncle_hash == uncle_ir.hash,
-            ).one()
-        except NoResultFound:
-            yield BlockUncle(
-                idx=idx, block_header_hash=block_header_hash, uncle_hash=uncle_ir.hash
-            )
+        if uncle_ir.hash in already_present_hashes:
+            continue
+        yield BlockUncle(
+            idx=idx, block_header_hash=block_header_hash, uncle_hash=uncle_ir.hash
+        )
 
 
 def import_block(
@@ -216,9 +237,6 @@ def import_block(
         session.add_all(objects_to_save)  # type: ignore
 
 
-logger = logging.getLogger("cthaeh.import")
-
-
 def orphan_header_chain(session: orm.Session, orphans: Sequence[HeaderIR]) -> None:
     with session.begin_nested():
         header_hashes = set(header_ir.hash for header_ir in orphans)
@@ -259,9 +277,7 @@ def orphan_header_chain(session: orm.Session, orphans: Sequence[HeaderIR]) -> No
                 humanize_hash(transaction.hash),
                 humanize_hash(transaction.block_header_hash),
             )
-            with session.begin_nested():
-                transaction.block_header_hash = None
-                session.add(transaction)
+            transaction.block_header_hash = None
 
             if transaction.receipt is not None:
                 for log_idx, log in enumerate(transaction.receipt.logs):
@@ -559,6 +575,8 @@ class HistoryLoader(Service):
 
                 if last_loaded_height < last_reported_height:
                     raise Exception("Invariant")
+                elif last_loaded_height == last_reported_height:
+                    continue
 
                 num_imported = last_loaded_height - last_reported_height
                 total_rows = query_row_count(
