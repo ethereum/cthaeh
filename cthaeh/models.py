@@ -68,11 +68,7 @@ class Header(Base):
             "_parent_hash is null or _detatched_parent_hash is null",
             name="_no_double_parent_hash",
         ),
-        Index(
-            "ix_hash_is_canonical",
-            "hash",
-            "is_canonical",
-        ),
+        Index("ix_hash_is_canonical", "hash", "is_canonical"),
     )
 
     hash = Column(LargeBinary(32), primary_key=True)

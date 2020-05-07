@@ -34,7 +34,6 @@ from cthaeh.models import (
     query_row_count,
 )
 
-
 logger = logging.getLogger("cthaeh.import")
 
 
@@ -57,24 +56,20 @@ def get_or_create_transactions(
     transactions: Sequence[TransactionIR],
     block_header_hash: Hash32,
 ) -> Iterator[Transaction]:
-    transaction_hashes = set(
-        transaction_ir.hash for transaction_ir in transactions
-    )
+    transaction_hashes = set(transaction_ir.hash for transaction_ir in transactions)
     already_present_hashes = set(
         result.hash
-        for result in session.query(Transaction.hash).filter(
-            Transaction.hash.in_(transaction_hashes),
-        ).all()
+        for result in session.query(Transaction.hash)  # type: ignore
+        .filter(Transaction.hash.in_(transaction_hashes))
+        .all()
     )
-    session.query(Transaction).filter(
-        Transaction.hash.in_(already_present_hashes),
-    ).update({'block_header_hash': block_header_hash}, synchronize_session=False)
+    session.query(Transaction).filter(  # type: ignore
+        Transaction.hash.in_(already_present_hashes)
+    ).update({"block_header_hash": block_header_hash}, synchronize_session=False)
     for transaction_ir in transactions:
         if transaction_ir.hash in already_present_hashes:
             continue
-        yield Transaction.from_ir(
-            transaction_ir, block_header_hash=block_header_hash
-        )
+        yield Transaction.from_ir(transaction_ir, block_header_hash=block_header_hash)
 
 
 @to_tuple
@@ -84,14 +79,14 @@ def get_or_create_uncles(
     uncle_hashes = set(uncle_ir.hash for uncle_ir in uncles)
     already_present_hashes = set(
         result.hash
-        for result in session.query(Header.hash).filter(
-            Header.hash.in_(uncle_hashes),
-        ).all()
+        for result in session.query(Header.hash)  # type: ignore
+        .filter(Header.hash.in_(uncle_hashes))
+        .all()
     )
-    session.query(Header).filter(
+    session.query(Header).filter(  # type: ignore
         Header.hash.in_(already_present_hashes),
-        Header.is_canonical.is_(True),
-    ).update({'is_canonical': False}, synchronize_session=False)
+        Header.is_canonical.is_(True),  # type: ignore
+    ).update({"is_canonical": False}, synchronize_session=False)
     for uncle_ir in uncles:
         if uncle_ir.hash in already_present_hashes:
             continue
@@ -107,7 +102,9 @@ def get_or_create_blocktransactions(
     transaction_hashes = set(transaction_ir.hash for transaction_ir in transactions)
     already_present_hashes = set(
         result.transaction_hash
-        for result in session.query(BlockTransaction.transaction_hash).filter(
+        for result in session.query(  # type: ignore
+            BlockTransaction.transaction_hash
+        ).filter(
             BlockTransaction.block_header_hash == block_header_hash,
             BlockTransaction.transaction_hash.in_(transaction_hashes),
         )
@@ -129,10 +126,12 @@ def get_or_create_blockuncles(
     uncle_hashes = set(uncle_ir.hash for uncle_ir in uncles)
     already_present_hashes = set(
         result.hash
-        for result in session.query(BlockUncle.uncle_hash).filter(
+        for result in session.query(BlockUncle.uncle_hash)  # type: ignore
+        .filter(
             BlockUncle.block_header_hash == block_header_hash,
             BlockUncle.uncle_hash.in_(uncle_hashes),
-        ).all()
+        )
+        .all()
     )
     for idx, uncle_ir in enumerate(uncles):
         if uncle_ir.hash in already_present_hashes:
